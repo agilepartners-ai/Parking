@@ -1,0 +1,38 @@
+# secrets - never commit
+.env
+.env.*
+!.env.example
+password.txt
+*.pem
+*.key
+*.p12
+*.mobileprovision
+*.keystore
+*.jks
+google-services.json
+GoogleService-Info.plist
+
+# dependencies and builds
+node_modules/
+dist/
+build/
+web-build/
+.expo/
+ios/
+android/
+*.ipa
+*.apk
+*.aab
+*.tsbuildinfo
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+demo-accounts.txt
+.tmp-export/
+.tmp-web/
+.tmp-serve.log
+.tmp-serve2.log
+.claude/

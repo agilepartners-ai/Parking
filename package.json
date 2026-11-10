@@ -1,0 +1,25 @@
+{
+  "name": "parkpay",
+  "private": true,
+  "version": "0.1.0",
+  "description": "ParkPay (working name): geo-location parking payment platform - driver/officer mobile app, operator console, Supabase backend.",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "test": "npm run test -w @parkpay/shared",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "mobile": "npm run start -w @parkpay/mobile",
+    "console": "npm run dev -w @parkpay/ops-console",
+    "seed:gen": "tsx packages/shared/scripts/gen-seed.ts",
+    "db:test": "node supabase/tests/run.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "pg": "^8.23.1",
+    "tsx": "^4.23.15",
+    "typescript": "^7.0.2",
+    "vitest": "^5.1.0"
+  }
+}
