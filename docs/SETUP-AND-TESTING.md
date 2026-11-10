@@ -172,7 +172,11 @@ Today `end_session` in `supabase/migrations/20261110000002_app_layer.sql` record
 
 | Problem | Try |
 |---|---|
-| QR code does not connect | Same Wi-Fi, or `npx expo start --tunnel` |
+| Expo Go on iPhone: "problem running the requested project / request timed out" | On Windows, run `npm run phone` (picks the real Wi-Fi address instead of a WSL/Hyper-V one). Still failing: the Windows Firewall is blocking port 8081 (the script prints the one-time fix to run in an Administrator PowerShell), or use `npm run phone:tunnel` |
+| Android app "keeps stopping" right after opening | Fixed in the build made after 2026-11-10: R8 code shrinking removed a WorkManager database class (`expo-build-properties` now turns it off). If it happens again, `adb logcat -d -s AndroidRuntime:E` shows the real error |
+| Start screen shows a red cross on a step | The checklist tells you which step failed (settings, server, sign-in). "Open the app now" appears after 6 seconds; the app always opens after 15 seconds |
+| QR code does not connect | Same Wi-Fi, or `npm run phone:tunnel` |
+| Builds are not visible on expo.dev | Pick the account `chopra.yatharth` (not the team) in the account menu: the project `parkpay` belongs to it |
 | "No parking area here" | Use a Toronto test spot (bottom of the Park screen) |
 | Sign-up says "check your email" | Turn off Confirm email (4.4) or confirm the email |
 | Officer tab missing | Role not granted yet (4.5); reopen the app after granting |
