@@ -7,6 +7,7 @@
 //   npm run phone:tunnel    works through any network / firewall (slower)
 import { networkInterfaces } from 'node:os';
 import { spawn } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 
@@ -28,6 +29,20 @@ function lanAddress() {
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const env = { ...process.env };
+
+// Sign the Expo CLI in automatically with EXPO_TOKEN from the root .env (never printed).
+// Expo Go on the phone must be signed in to the same account (chopra.yatharth): the project is owned by it.
+if (!env.EXPO_TOKEN) {
+  try {
+    const line = readFileSync(path.join(root, '.env'), 'utf8').split(/\r?\n/).find((l) => l.startsWith('EXPO_TOKEN='));
+    const token = line?.slice('EXPO_TOKEN='.length).trim();
+    if (token) env.EXPO_TOKEN = token;
+  } catch {
+    /* no .env: the CLI will ask you to run "npx expo login" */
+  }
+}
+console.log(env.EXPO_TOKEN ? 'Expo CLI: signed in with the token from .env.' : 'Expo CLI: no EXPO_TOKEN found. Run "npx expo login" first.');
+console.log('Expo Go on the phone: open Expo Go, tap Log in, and sign in as chopra.yatharth.\n');
 const args = ['expo', 'start', '--go'];
 
 if (tunnel) {
