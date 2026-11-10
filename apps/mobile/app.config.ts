@@ -53,6 +53,14 @@ const config: ExpoConfig = {
       },
     ],
     ['expo-notifications', { color: '#0B8F5A' }],
+    [
+      'expo-build-properties',
+      {
+        // R8 minification removed a class WorkManager needs at start-up, so the first APK crashed on launch (found on the emulator).
+        // Keep it off until a release is tested with minification on.
+        android: { enableMinifyInReleaseBuilds: false, enableShrinkResourcesInReleaseBuilds: false },
+      },
+    ],
   ],
   experiments: { typedRoutes: false },
   extra: { eas: { projectId: 'ddf560e5-7102-44bf-9804-e384220499b1' }, hasMapsKey: !!process.env.GOOGLE_MAPS_API_KEY },

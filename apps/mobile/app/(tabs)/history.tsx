@@ -1,11 +1,10 @@
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
-import { Pressable, RefreshControl, ScrollView, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Pressable, RefreshControl, Text, View } from 'react-native';
 import { formatDuration, formatMoney, type ParkingSession } from '@parkpay/shared';
-import { Body, Card, Empty, H1, Pill, Spread } from '../../src/components/ui';
+import { Banner, Body, Button, Card, Empty, IconBadge, Pill, Screen, SkeletonCard } from '../../src/components/ui';
 import { errorMessage, useApp } from '../../src/state/AppState';
-import { useTheme } from '../../src/theme';
+import { type as ty, useTheme } from '../../src/theme';
 
 export default function HistoryScreen() {
   const t = useTheme();
@@ -21,6 +20,7 @@ export default function HistoryScreen() {
       setItems(await api.sessions());
     } catch (e) {
       setError(errorMessage(e));
+      setItems((cur) => cur ?? []);
     }
   }, [api]);
 
@@ -30,33 +30,44 @@ export default function HistoryScreen() {
     }, [load]),
   );
 
-  const total = (items ?? []).filter((s) => s.status === 'completed').reduce((n, s) => n + (s.fee_cents ?? 0), 0);
+  const done = (items ?? []).filter((s) => s.status === 'completed');
+  const total = done.reduce((n, s) => n + (s.fee_cents ?? 0), 0);
 
   return (
-    <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: t.bg }}>
-      <ScrollView
-        contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 40 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
-      >
-        <H1>History</H1>
-        {error ? <Card tone="danger"><Body>{error}</Body></Card> : null}
-        {items && items.length > 0 ? <Body muted>{items.length} sessions · {formatMoney(total, items[0].currency)} total</Body> : null}
-        {items && items.length === 0 ? <Empty icon="receipt-outline" title="No parking yet" hint="Your finished sessions and receipts appear here." /> : null}
-        {(items ?? []).map((s) => (
-          <Pressable key={s.id} onPress={() => (s.status === 'completed' ? router.push({ pathname: '/receipt/[id]', params: { id: s.id } }) : router.navigate('/'))}>
-            <Card>
-              <Spread
-                left={<Text style={{ color: t.text, fontSize: 16, fontWeight: '700', flexShrink: 1 }}>{s.area_name}</Text>}
-                right={s.status === 'completed' ? <Text style={{ color: t.text, fontSize: 16, fontWeight: '800' }}>{formatMoney(s.fee_cents ?? 0, s.currency)}</Text> : <Pill text="ACTIVE" />}
-              />
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-                <Body muted>{new Date(s.started_at).toLocaleString()}</Body>
-                <Body muted>{s.plate}{s.duration_minutes ? ` · ${formatDuration(s.duration_minutes)}` : ''}</Body>
-              </View>
-            </Card>
-          </Pressable>
-        ))}
-      </ScrollView>
-    </SafeAreaView>
+    <Screen
+      title="History"
+      subtitle={items && items.length ? `${done.length} finished · ${formatMoney(total, items[0].currency)} total (test payments)` : undefined}
+      refreshControl={<RefreshControl refreshing={refreshing} tintColor={t.brand} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
+    >
+      {error ? <Banner tone="danger" title="Could not load history" text={error} action={<Button size="sm" variant="secondary" title="Try again" onPress={load} style={{ marginTop: 8, alignSelf: 'flex-start' }} />} /> : null}
+      {items === null ? (
+        <>
+          <SkeletonCard lines={2} />
+          <SkeletonCard lines={2} />
+          <SkeletonCard lines={2} />
+        </>
+      ) : null}
+      {items && items.length === 0 && !error ? <Empty icon="receipt-outline" title="No parking yet" hint="Your finished sessions and receipts will show up here." action={<Button size="sm" title="Start parking" onPress={() => router.navigate('/')} />} /> : null}
+      {(items ?? []).map((s) => (
+        <Pressable key={s.id} accessibilityRole="button" onPress={() => (s.status === 'completed' ? router.push({ pathname: '/receipt/[id]', params: { id: s.id } }) : router.navigate('/'))}>
+          <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <IconBadge name={s.status === 'completed' ? 'checkmark-done' : 'time'} tone={s.status === 'completed' ? 'brand' : 'info'} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[ty.body, { color: t.text, fontWeight: '700' }]} numberOfLines={1}>{s.area_name}</Text>
+              <Text style={[ty.small, { color: t.muted }]} numberOfLines={1}>
+                {new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · {s.plate}
+                {s.duration_minutes ? ` · ${formatDuration(s.duration_minutes)}` : ''}
+              </Text>
+            </View>
+            {s.status === 'completed' ? (
+              <Text style={{ color: t.text, fontSize: 17, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{formatMoney(s.fee_cents ?? 0, s.currency)}</Text>
+            ) : (
+              <Pill text="Active" />
+            )}
+          </Card>
+        </Pressable>
+      ))}
+      {items && items.length ? <Body muted style={{ textAlign: 'center', fontSize: 12 }}>Pull down to refresh</Body> : null}
+    </Screen>
   );
 }

@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Citation, NearbyVehicle, ParkingArea, ParkingSession, PlateCheck, Vehicle } from '@parkpay/shared';
 import { normalizePlate } from '@parkpay/shared';
+import { fetchWithTimeout, withTimeout } from '../lib/boot';
 import { toApiError } from './errors';
 import type { Api, CitationInput, Profile, StartInput } from './types';
 
@@ -15,9 +16,21 @@ function sb(): SupabaseClient {
   if (!client) {
     client = createClient(SUPABASE_URL, SUPABASE_KEY, {
       auth: { storage: AsyncStorage, autoRefreshToken: true, persistSession: true, detectSessionInUrl: false },
+      global: { fetch: fetchWithTimeout(15_000) }, // a dead connection fails after 15 s instead of spinning forever
     });
   }
   return client;
+}
+
+/** Quick reachability check for the start screen (6 s limit). */
+export async function pingBackend(): Promise<boolean> {
+  if (!liveConfigured) return false;
+  try {
+    const r = await withTimeout(fetch(`${SUPABASE_URL}/auth/v1/health`, { headers: { apikey: SUPABASE_KEY } }), 6000, 'Server');
+    return r.ok;
+  } catch {
+    return false;
+  }
 }
 
 async function rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {

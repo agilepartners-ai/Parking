@@ -2,7 +2,7 @@ import { useFocusEffect } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { formatMoney, type Citation, type NearbyVehicle, type PlateCheck } from '@parkpay/shared';
 import TestLocation from '../../src/components/TestLocation';
-import { Body, Button, Card, Chip, ErrorText, Field, H1, Label, Pill, Row, Screen, Spread } from '../../src/components/ui';
+import { Body, Button, Card, Chip, ErrorText, Field, Label, Pill, Row, Screen, SectionTitle, Spread } from '../../src/components/ui';
 import { notify } from '../../src/lib/dialog';
 import { errorMessage, useApp } from '../../src/state/AppState';
 
@@ -65,20 +65,18 @@ export default function OfficerScreen() {
   const tone = result?.result === 'valid' ? 'brand' : result?.result === 'wrong_area' ? 'warn' : 'danger';
 
   return (
-    <Screen>
-      <H1>Officer</H1>
-      <Body muted>{currentArea ? `You are in ${currentArea.name}.` : 'You are outside every parking area.'}</Body>
+    <Screen title="Officer" subtitle={currentArea ? `You are in ${currentArea.name}` : 'You are outside every parking area'}>
 
       <Card>
-        <Label>Check a plate</Label>
+        <SectionTitle>Check a plate</SectionTitle>
         <Field label="Licence plate" value={plate} onChangeText={(v) => { setPlate(v); setResult(null); }} placeholder="DEMO123" autoCapitalize="characters" autoCorrect={false} />
         <ErrorText>{error}</ErrorText>
-        <Button title="Check" icon="search" onPress={check} loading={checking} disabled={plate.trim().length < 2} />
+        <Button title="Check plate" icon="search" onPress={check} loading={checking} disabled={plate.trim().length < 2} />
       </Card>
 
       {result ? (
         <Card tone={tone}>
-          <Pill text={result.result.replace('_', ' ').toUpperCase()} tone={result.result === 'valid' ? 'brand' : result.result === 'wrong_area' ? 'warn' : 'danger'} />
+          <Pill text={result.result.replace('_', ' ')} tone={result.result === 'valid' ? 'brand' : result.result === 'wrong_area' ? 'warn' : 'danger'} />
           <Body bold style={{ fontSize: 20 }}>{result.plate}</Body>
           <Body>{result.message}</Body>
           {result.started_at ? <Body muted>Started {new Date(result.started_at).toLocaleTimeString()}</Body> : null}

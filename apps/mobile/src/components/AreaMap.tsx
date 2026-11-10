@@ -22,6 +22,8 @@ const mapsAvailable =
   Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
   !!(Constants.expoConfig?.extra as { hasMapsKey?: boolean } | undefined)?.hasMapsKey;
 
+export const hasRealMap = mapsAvailable;
+
 /** Native map: parking areas as coloured polygons, the driver as a pin. */
 export default function AreaMap(props: Props) {
   return mapsAvailable ? <NativeMap {...props} /> : <AreaFallback {...props} />;

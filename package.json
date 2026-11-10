@@ -13,7 +13,9 @@
     "mobile": "npm run start -w @parkpay/mobile",
     "console": "npm run dev -w @parkpay/ops-console",
     "seed:gen": "tsx packages/shared/scripts/gen-seed.ts",
-    "db:test": "node supabase/tests/run.mjs"
+    "db:test": "node supabase/tests/run.mjs",
+    "phone": "node scripts/phone.mjs",
+    "phone:tunnel": "node scripts/phone.mjs --tunnel"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

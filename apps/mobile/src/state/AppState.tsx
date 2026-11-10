@@ -15,9 +15,10 @@ import {
 } from '@parkpay/shared';
 import { demoApi } from '../api/demo';
 import { errorMessage } from '../api/errors';
-import { liveConfigured, supabaseApi } from '../api/supabase';
+import { liveConfigured, pingBackend, supabaseApi } from '../api/supabase';
 import type { Api, Profile } from '../api/types';
 import { startLeaveWatch, stopLeaveWatch } from '../lib/background';
+import { withTimeout } from '../lib/boot';
 import { cancelSessionReminders, notifyNow, scheduleSessionReminders } from '../lib/notify';
 
 export type Mode = 'live' | 'demo';
@@ -30,6 +31,19 @@ export interface Fix {
   source: 'gps' | 'test';
   label?: string;
 }
+export type StepState = 'pending' | 'active' | 'ok' | 'fail' | 'skip';
+export interface BootStep {
+  id: 'storage' | 'server' | 'session';
+  label: string;
+  state: StepState;
+  detail?: string;
+}
+const INITIAL_STEPS: BootStep[] = [
+  { id: 'storage', label: 'Opening saved settings', state: 'pending' },
+  { id: 'server', label: 'Reaching the ParkPay server', state: 'pending' },
+  { id: 'session', label: 'Checking your sign-in', state: 'pending' },
+];
+
 export interface TestSpot {
   name: string;
   lat: number;
@@ -39,6 +53,13 @@ export interface TestSpot {
 
 interface Ctx {
   ready: boolean;
+  bootSteps: BootStep[];
+  serverReachable: boolean | null;
+  skipBoot(): void;
+  vehiclesLoaded: boolean;
+  sessionLoaded: boolean;
+  areasLoaded: boolean;
+  areasError: string | null;
   mode: Mode;
   liveAvailable: boolean;
   api: Api;
@@ -83,6 +104,8 @@ const uuid = () => 'k' + Math.random().toString(36).slice(2) + Date.now().toStri
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
+  const [bootSteps, setBootSteps] = useState<BootStep[]>(INITIAL_STEPS);
+  const [serverReachable, setServerReachable] = useState<boolean | null>(null);
   const [mode, setMode] = useState<Mode>(liveConfigured ? 'live' : 'demo');
   const api = mode === 'live' ? supabaseApi : demoApi;
   const [user, setUser] = useState<Profile | null>(null);
@@ -105,28 +128,67 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     : gps;
 
   // ---- boot: restore mode, test spot, user ------------------------------------------------
+  // Every step has a time limit, and a 15 s watchdog opens the app regardless: the start screen can never hang.
+  const step = useCallback(
+    (id: BootStep['id'], patch: Partial<BootStep>) => setBootSteps((all) => all.map((x) => (x.id === id ? { ...x, ...patch } : x))),
+    [],
+  );
+  const bootDone = useRef(false);
+  const finishBoot = useCallback(() => {
+    if (bootDone.current) return;
+    bootDone.current = true;
+    setReady(true);
+  }, []);
+
   useEffect(() => {
+    const dog = setTimeout(() => {
+      if (bootDone.current) return;
+      setBootSteps((all) => all.map((x) => (x.state === 'ok' || x.state === 'skip' ? x : { ...x, state: 'fail', detail: 'Took too long' })));
+      finishBoot();
+    }, 15_000);
     (async () => {
       let m: Mode = liveConfigured ? 'live' : 'demo';
+      step('storage', { state: 'active' });
       try {
-        const stored = (await AsyncStorage.getItem(MODE_KEY)) as Mode | null;
+        const stored = (await withTimeout(AsyncStorage.getItem(MODE_KEY), 4000, 'Saved settings')) as Mode | null;
         if (stored === 'demo' || (stored === 'live' && liveConfigured)) m = stored;
-        const spot = await AsyncStorage.getItem(SPOT_KEY);
+        const spot = await withTimeout(AsyncStorage.getItem(SPOT_KEY), 4000, 'Saved settings');
         if (spot === 'gps') setTestSpotState(null);
         else if (spot) setTestSpotState(JSON.parse(spot));
-      } catch {
-        /* defaults */
+        step('storage', { state: 'ok' });
+      } catch (e) {
+        step('storage', { state: 'fail', detail: errorMessage(e) });
       }
       setMode(m);
-      try {
-        const u = await (m === 'live' ? supabaseApi : demoApi).restore();
-        setUser(u);
-      } catch {
-        setUser(null);
+
+      if (m === 'live') {
+        step('server', { state: 'active' });
+        const up = await pingBackend();
+        setServerReachable(up);
+        step('server', up ? { state: 'ok' } : { state: 'fail', detail: 'No connection' });
+      } else {
+        step('server', { state: 'skip', detail: 'Demo mode' });
       }
-      setReady(true);
+
+      step('session', { state: 'active' });
+      try {
+        const u = await withTimeout((m === 'live' ? supabaseApi : demoApi).restore(), 8000, 'Sign-in check');
+        setUser(u);
+        step('session', { state: 'ok', detail: u ? 'Signed in' : 'Not signed in' });
+      } catch (e) {
+        setUser(null);
+        step('session', { state: 'fail', detail: errorMessage(e) });
+      }
+      finishBoot();
     })();
-  }, []);
+    return () => clearTimeout(dog);
+  }, [step, finishBoot]);
+
+  /** "Open the app now" on the start screen. */
+  const skipBoot = useCallback(() => {
+    setUser(null);
+    finishBoot();
+  }, [finishBoot]);
 
   // ---- real GPS (only when not using a test spot) ----------------------------------------
   useEffect(() => {
@@ -155,8 +217,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [testSpot, user]);
 
   // ---- data refresh -----------------------------------------------------------------------
-  const refreshVehicles = useCallback(async () => setVehicles(await api.vehicles()), [api]);
-  const refreshSession = useCallback(async () => setActiveSession(await api.activeSession()), [api]);
+  const [vehiclesLoaded, setVehiclesLoaded] = useState(false);
+  const [sessionLoaded, setSessionLoaded] = useState(false);
+  const [areasLoaded, setAreasLoaded] = useState(false);
+  const [areasError, setAreasError] = useState<string | null>(null);
+  const refreshVehicles = useCallback(async () => {
+    try {
+      setVehicles(await api.vehicles());
+    } finally {
+      setVehiclesLoaded(true);
+    }
+  }, [api]);
+  const refreshSession = useCallback(async () => {
+    try {
+      setActiveSession(await api.activeSession());
+    } finally {
+      setSessionLoaded(true);
+    }
+  }, [api]);
   const refreshUser = useCallback(async () => setUser(await api.profile()), [api]);
 
   useEffect(() => {
@@ -164,6 +242,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setVehicles([]);
       setActiveSession(null);
       setAreas([]);
+      setVehiclesLoaded(false);
+      setSessionLoaded(false);
+      setAreasLoaded(false);
+      setAreasError(null);
+      lastAreaFetch.current = null;
       return;
     }
     refreshVehicles().catch(() => undefined);
@@ -187,7 +270,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const last = lastAreaFetch.current;
     if (last && haversineMeters(last.lat, last.lng, fix.lat, fix.lng) < 1000 && areas.length) return;
     lastAreaFetch.current = { lat: fix.lat, lng: fix.lng };
-    api.areas(fix.lat, fix.lng).then(setAreas).catch(() => undefined);
+    api
+      .areas(fix.lat, fix.lng)
+      .then((a) => {
+        setAreas(a);
+        setAreasError(null);
+      })
+      .catch((e) => {
+        lastAreaFetch.current = null; // allow a retry on the next position update
+        setAreasError(errorMessage(e));
+      })
+      .finally(() => setAreasLoaded(true));
   }, [user, fix?.lat, fix?.lng, api]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const currentArea = useMemo(() => (fix ? findArea(areas, fix.lat, fix.lng) : null), [areas, fix?.lat, fix?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -324,6 +417,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const value: Ctx = {
     ready,
+    bootSteps,
+    serverReachable,
+    skipBoot,
+    vehiclesLoaded,
+    sessionLoaded,
+    areasLoaded,
+    areasError,
     mode,
     liveAvailable: liveConfigured,
     api,

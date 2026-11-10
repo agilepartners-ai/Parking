@@ -14,12 +14,12 @@ export default function TestLocation() {
   return (
     <Card>
       <Label>Test location</Label>
-      <Body muted>
-        {testSpot ? `Pretending to be at: ${testSpot.name}.` : fix ? `Using real GPS (${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}).` : 'Waiting for GPS…'}
+      <Body muted style={{ fontSize: 13 }}>
+        {testSpot ? `Pretending to be at ${testSpot.name}.` : fix ? `Using real GPS (${fix.lat.toFixed(4)}, ${fix.lng.toFixed(4)}).` : 'Waiting for GPS…'}
         {locationDenied && !testSpot ? ' Location permission is off.' : ''}
       </Body>
       <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
-        <Chip text="Real GPS" active={!testSpot} onPress={() => setTestSpot(null)} />
+        <Chip icon="navigate" text="Real GPS" active={!testSpot} onPress={() => setTestSpot(null)} />
         {spots.map((s) => (
           <Chip key={s.name} text={s.name} active={testSpot?.name === s.name} onPress={() => setTestSpot({ name: s.name, lat: s.lat, lng: s.lng })} />
         ))}
