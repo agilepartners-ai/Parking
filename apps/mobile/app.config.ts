@@ -9,8 +9,12 @@ const config: ExpoConfig = {
   slug: 'parkpay',
   owner: 'chopra.yatharth',
   scheme: 'parkpay',
-  version: '0.1.0',
+  version: '0.1.1',
   orientation: 'portrait',
+  // Over-the-air updates: JavaScript-only fixes reach installed apps without a new store build (and without using EAS build credits).
+  // A new native build is needed only when native code or permissions change; bump `version` then (runtime = app version).
+  runtimeVersion: { policy: 'appVersion' },
+  updates: { url: 'https://u.expo.dev/ddf560e5-7102-44bf-9804-e384220499b1', checkAutomatically: 'ON_LOAD', fallbackToCacheTimeout: 3000 },
   icon: './assets/icon.png',
   userInterfaceStyle: 'automatic',
   ios: {

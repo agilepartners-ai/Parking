@@ -15,7 +15,8 @@
     "seed:gen": "tsx packages/shared/scripts/gen-seed.ts",
     "db:test": "node supabase/tests/run.mjs",
     "phone": "node scripts/phone.mjs",
-    "phone:tunnel": "node scripts/phone.mjs --tunnel"
+    "phone:tunnel": "node scripts/phone.mjs --tunnel",
+    "build:apk": "node scripts/build-apk-local.mjs"
   },
   "devDependencies": {
     "@types/node": "^26.6.6",

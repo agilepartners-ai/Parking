@@ -36,3 +36,6 @@ demo-accounts.txt
 .tmp-serve.log
 .tmp-serve2.log
 .claude/
+
+# local build outputs
+release-artifacts/

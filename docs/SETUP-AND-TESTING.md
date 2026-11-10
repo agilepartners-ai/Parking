@@ -53,7 +53,7 @@ database/          original schema design notes (supabase/migrations is now the 
    - If it will not connect, run `npx expo start --tunnel` inside `apps/mobile` instead.
 5. Tap **Start demo**.
 
-The demo uses sample Toronto areas. You are probably not in Toronto, so the **Test location** chips at the bottom of the Park screen move you to a Toronto spot (City Hall Lot is selected first). Choose **Real GPS** to use your actual position.
+The app uses your **real GPS** by default and finds the parking area you are in. The demo areas are in Toronto, so unless you are there use the **Test location** chips at the bottom of the Park screen to move to a Toronto spot (on the emulator you can also run `adb emu geo fix -79.3832 43.6532`). Choose **Real GPS** to go back.
 
 ## 3. Test checklist (do this on a real iPhone and a real Android)
 
@@ -136,7 +136,7 @@ eas build --profile development --platform ios       # needs an Apple Developer 
 ```
 Then `npx expo start --dev-client` and open the installed app. Allow location **Always** when asked.
 
-Android store builds also need a Google Maps key: add it as an EAS secret named `GOOGLE_MAPS_API_KEY`.
+Android store builds also need a Google Maps key. Step by step, and how to avoid using up Expo cloud builds, are in [BUILDS-AND-RELEASES.md](BUILDS-AND-RELEASES.md).
 
 ## 7. Before the stores
 
@@ -180,7 +180,9 @@ Today `end_session` in `supabase/migrations/20261110000002_app_layer.sql` record
 | "No parking area here" | Use a Toronto test spot (bottom of the Park screen) |
 | Sign-up says "check your email" | Turn off Confirm email (4.4) or confirm the email |
 | Officer tab missing | Role not granted yet (4.5); reopen the app after granting |
-| Map blank on Android build | Missing Google Maps key (section 6) |
+| Map blank on Android build | Missing Google Maps key ([BUILDS-AND-RELEASES.md](BUILDS-AND-RELEASES.md)) |
+| Keyboard covers the input | Fixed in 0.1.1: screens scroll the focused field above the keyboard |
+| Added a vehicle but it is not on the Park screen | Fixed in 0.1.1: tabs refresh on focus; pull down on Park or Vehicles to refresh by hand |
 | `permission denied` or `forbidden` | You are signed in with the wrong role |
 | Database tests fail to connect | Check `.env`; use the pooler host, not the direct host |
 
