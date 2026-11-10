@@ -1,8 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import React, { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, ScrollView, Text, TextInput, View } from 'react-native';
+import { Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Logo } from '../../src/components/Boot';
+import KeyboardScroll from '../../src/components/KeyboardScroll';
 import { Banner, Body, Button, Card, Field, type InputRef } from '../../src/components/ui';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
@@ -54,8 +55,7 @@ export default function SignIn() {
 
   return (
     <SafeAreaView style={{ flex: 1, backgroundColor: t.bg }}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
-        <ScrollView contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: space.xl, gap: space.xl }} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+      <KeyboardScroll contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', padding: space.xl, gap: space.xl }}>
           <View style={{ alignItems: 'center', gap: space.md }}>
             <Logo size={76} />
             <View style={{ alignItems: 'center', gap: 4 }}>
@@ -90,8 +90,7 @@ export default function SignIn() {
             <Button variant="secondary" title={demo ? 'Use my real account instead' : 'Try demo mode (offline)'} onPress={() => switchMode(demo ? 'live' : 'demo')} />
           ) : null}
           <Body muted style={{ textAlign: 'center', fontSize: 12 }}>Prototype. Payments are simulated: no money moves.</Body>
-        </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardScroll>
     </SafeAreaView>
   );
 }

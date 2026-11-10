@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BootScreen, CrashScreen } from '../src/components/Boot';
+import { ToastProvider } from '../src/components/Motion';
 import { captureErrors, lastCapturedError, onCapturedError } from '../src/lib/boot';
 import { AppProvider, useApp } from '../src/state/AppState';
 import { useTheme } from '../src/theme';
@@ -51,7 +52,9 @@ export default function Root() {
         <CrashScreen error={crash} onRetry={() => setCrash(null)} />
       ) : (
         <AppProvider>
-          <Gate />
+          <ToastProvider>
+            <Gate />
+          </ToastProvider>
         </AppProvider>
       )}
     </SafeAreaProvider>

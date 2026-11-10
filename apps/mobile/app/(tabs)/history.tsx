@@ -1,3 +1,4 @@
+import { Enter } from '../../src/components/Motion';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
@@ -48,8 +49,9 @@ export default function HistoryScreen() {
         </>
       ) : null}
       {items && items.length === 0 && !error ? <Empty icon="receipt-outline" title="No parking yet" hint="Your finished sessions and receipts will show up here." action={<Button size="sm" title="Start parking" onPress={() => router.navigate('/')} />} /> : null}
-      {(items ?? []).map((s) => (
-        <Pressable key={s.id} accessibilityRole="button" onPress={() => (s.status === 'completed' ? router.push({ pathname: '/receipt/[id]', params: { id: s.id } }) : router.navigate('/'))}>
+      {(items ?? []).map((s, i) => (
+        <Enter key={s.id} i={i}>
+        <Pressable accessibilityRole="button" onPress={() => (s.status === 'completed' ? router.push({ pathname: '/receipt/[id]', params: { id: s.id } }) : router.navigate('/'))}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
             <IconBadge name={s.status === 'completed' ? 'checkmark-done' : 'time'} tone={s.status === 'completed' ? 'brand' : 'info'} />
             <View style={{ flex: 1, gap: 2 }}>
@@ -66,6 +68,7 @@ export default function HistoryScreen() {
             )}
           </Card>
         </Pressable>
+        </Enter>
       ))}
       {items && items.length ? <Body muted style={{ textAlign: 'center', fontSize: 12 }}>Pull down to refresh</Body> : null}
     </Screen>

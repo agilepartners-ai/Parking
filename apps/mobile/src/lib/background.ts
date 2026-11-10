@@ -40,12 +40,35 @@ if (backgroundSupported) {
   }
 }
 
+const ASKED_KEY = 'parkpay.bg.asked';
+
+/** True when the phone could do background reminders but the driver has not been asked yet (we ask once, with an explanation first). */
+export async function shouldOfferLeaveWatch(): Promise<boolean> {
+  if (!backgroundSupported) return false;
+  try {
+    const [fg, bg, asked] = await Promise.all([Location.getForegroundPermissionsAsync(), Location.getBackgroundPermissionsAsync(), AsyncStorage.getItem(ASKED_KEY)]);
+    return fg.granted && !bg.granted && !asked;
+  } catch {
+    return false;
+  }
+}
+
+/** Android sends the driver to system settings for this one, so only call it after they agreed in our own dialog. */
+export async function askForLeaveWatch(): Promise<boolean> {
+  await AsyncStorage.setItem(ASKED_KEY, '1').catch(() => undefined);
+  try {
+    return (await Location.requestBackgroundPermissionsAsync()).granted;
+  } catch {
+    return false;
+  }
+}
+
 export async function startLeaveWatch(info: { areaName: string; geometry: AreaGeometry }): Promise<boolean> {
   if (!backgroundSupported) return false;
   try {
     const fg = await Location.getForegroundPermissionsAsync();
     if (!fg.granted) return false;
-    const bg = await Location.requestBackgroundPermissionsAsync();
+    const bg = await Location.getBackgroundPermissionsAsync(); // never opens a system screen by itself
     if (!bg.granted) return false;
     await AsyncStorage.setItem(INFO_KEY, JSON.stringify(info));
     await AsyncStorage.removeItem(LAST_KEY);

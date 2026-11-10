@@ -1,7 +1,9 @@
 import React, { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Keyboard, Text, View } from 'react-native';
+import { Enter, useToast } from '../../src/components/Motion';
 import { Body, Button, Card, Empty, ErrorText, Field, IconBadge, Pill, Screen, SectionTitle, Skeleton } from '../../src/components/ui';
 import { confirmDialog, notify } from '../../src/lib/dialog';
+import { useRefresh } from '../../src/lib/useRefresh';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
 
@@ -14,6 +16,8 @@ export default function VehiclesScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
+  const refreshControl = useRefresh(refreshVehicles);
+  const toast = useToast();
 
   async function add() {
     setError(null);
@@ -22,7 +26,9 @@ export default function VehiclesScreen() {
       await api.addVehicle({ plate, region, nickname });
       setPlate('');
       setNickname('');
+      Keyboard.dismiss();
       await refreshVehicles();
+      toast.show('Vehicle added');
     } catch (e) {
       setError(errorMessage(e));
     } finally {
@@ -37,6 +43,7 @@ export default function VehiclesScreen() {
     try {
       await api.removeVehicle(id);
       await refreshVehicles();
+      toast.show('Vehicle removed', 'info');
     } catch (e) {
       notify('Could not remove', errorMessage(e));
     } finally {
@@ -49,6 +56,7 @@ export default function VehiclesScreen() {
     try {
       await api.setDefaultVehicle(id);
       await refreshVehicles();
+      toast.show('Default vehicle changed');
     } catch (e) {
       notify('Could not change default', errorMessage(e));
     } finally {
@@ -57,14 +65,15 @@ export default function VehiclesScreen() {
   }
 
   return (
-    <Screen title="Vehicles" subtitle="The plates you park with">
+    <Screen title="Vehicles" subtitle="The plates you park with" refreshControl={refreshControl}>
       {!vehiclesLoaded ? (
         <Card><Skeleton w="40%" h={24} /><Skeleton w="60%" h={14} /></Card>
       ) : vehicles.length === 0 ? (
         <Empty icon="car-outline" title="No vehicles yet" hint="Add the plate you park with, below." />
       ) : (
-        vehicles.map((v) => (
-          <Card key={v.id} style={{ gap: space.md }}>
+        vehicles.map((v, i) => (
+          <Enter key={v.id} i={i}>
+          <Card style={{ gap: space.md }}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
               <IconBadge name="car-sport" />
               <View style={{ flex: 1, gap: 2 }}>
@@ -80,6 +89,7 @@ export default function VehiclesScreen() {
               <Button size="sm" variant="ghost" title="Remove" disabled={working === v.id} onPress={() => remove(v.id, v.plate)} style={{ flex: 1 }} />
             </View>
           </Card>
+          </Enter>
         ))
       )}
       <SectionTitle>Add a vehicle</SectionTitle>

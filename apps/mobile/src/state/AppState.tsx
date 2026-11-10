@@ -84,6 +84,8 @@ interface Ctx {
   refreshUser(): Promise<void>;
   refreshVehicles(): Promise<void>;
   refreshSession(): Promise<void>;
+  refreshAll(): Promise<void>;
+  refreshLocation(): Promise<Fix | null>;
   setTestSpot(s: TestSpot | null): Promise<void>;
   simulateLeaving(): Promise<void>;
   startParking(vehicleId: string): Promise<ParkingSession>;
@@ -113,7 +115,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [activeSession, setActiveSession] = useState<ParkingSession | null>(null);
   const [areas, setAreas] = useState<ParkingArea[]>([]);
   const [sessionAreaCache, setSessionAreaCache] = useState<ParkingArea | null>(null);
-  const [testSpot, setTestSpotState] = useState<TestSpot | null>(DEMO_SPOTS[0]);
+  // Real GPS is the default. A test spot is used only if the user picked one (it is remembered between launches).
+  const [testSpot, setTestSpotState] = useState<TestSpot | null>(null);
   const [gps, setGps] = useState<Fix | null>(null);
   const [locationDenied, setLocationDenied] = useState(false);
   const [leftArea, setLeftArea] = useState(false);
@@ -202,6 +205,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         return;
       }
       setLocationDenied(false);
+      // show something right away from the last known position, then let the watcher sharpen it
+      Location.getLastKnownPositionAsync()
+        .then((p) => {
+          if (p && !cancelled) setGps((cur) => cur ?? { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, speed: p.coords.speed, source: 'gps' });
+        })
+        .catch(() => undefined);
       sub = await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 8 },
         (p) => {
@@ -236,6 +245,48 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [api]);
   const refreshUser = useCallback(async () => setUser(await api.profile()), [api]);
+
+  /** Re-reads the position now (GPS only). Returns the fix to use, or the last one if the phone cannot answer in time. */
+  const refreshLocation = useCallback(async (): Promise<Fix | null> => {
+    if (testSpot || Platform.OS === 'web') return fix;
+    try {
+      const perm = await Location.getForegroundPermissionsAsync();
+      if (!perm.granted) {
+        const asked = await Location.requestForegroundPermissionsAsync();
+        if (!asked.granted) {
+          setLocationDenied(true);
+          return gps;
+        }
+        setLocationDenied(false);
+      }
+      const p = (await withTimeout(Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High }), 9000, 'Location')) as Location.LocationObject;
+      const next: Fix = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, speed: p.coords.speed, source: 'gps' };
+      setGps(next);
+      return next;
+    } catch {
+      return gps;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [testSpot, gps?.lat, gps?.lng]);
+
+  const refreshAreas = useCallback(async () => {
+    if (!user || !fix) return;
+    try {
+      const a = await api.areas(fix.lat, fix.lng);
+      lastAreaFetch.current = { lat: fix.lat, lng: fix.lng };
+      setAreas(a);
+      setAreasError(null);
+    } catch (e) {
+      setAreasError(errorMessage(e));
+    } finally {
+      setAreasLoaded(true);
+    }
+  }, [api, user, fix?.lat, fix?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  /** Everything on the Park screen: position, vehicles, running session and nearby areas. */
+  const refreshAll = useCallback(async () => {
+    await Promise.allSettled([refreshVehicles(), refreshSession(), refreshAreas(), refreshLocation()]);
+  }, [refreshVehicles, refreshSession, refreshAreas, refreshLocation]);
 
   useEffect(() => {
     if (!user) {
@@ -377,10 +428,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const startParking = useCallback(
     async (vehicleId: string) => {
-      if (!fix) throw new Error('Waiting for your location…');
       setBusy(true);
       try {
-        const s = await api.startSession({ vehicleId, lat: fix.lat, lng: fix.lng, accuracy: fix.accuracy, speed: fix.speed, key: uuid() });
+        // Ask the phone for a fresh position right now, so the session starts where the car actually is.
+        const here = (await refreshLocation()) ?? fix;
+        if (!here) throw new Error('We could not find your location. Turn on location for ParkPay, or pick a test spot.');
+        const s = await api.startSession({ vehicleId, lat: here.lat, lng: here.lng, accuracy: here.accuracy, speed: here.speed, key: uuid() });
         setActiveSession(s);
         notifiedLeft.current = null;
         const area = areas.find((a) => a.id === s.area_id);
@@ -391,7 +444,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
       }
     },
-    [api, fix, areas],
+    [api, fix, areas, refreshLocation],
   );
 
   const endParking = useCallback(async () => {
@@ -447,6 +500,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshUser,
     refreshVehicles,
     refreshSession,
+    refreshAll,
+    refreshLocation,
     setTestSpot,
     simulateLeaving,
     startParking,

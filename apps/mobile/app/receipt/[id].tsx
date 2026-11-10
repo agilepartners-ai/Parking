@@ -2,6 +2,7 @@ import { useLocalSearchParams } from 'expo-router';
 import React, { useEffect, useState } from 'react';
 import { Share, Text, View } from 'react-native';
 import { formatDuration, formatMoney, type ParkingSession } from '@parkpay/shared';
+import { Enter, Pop } from '../../src/components/Motion';
 import { Banner, Body, Button, Card, Divider, IconBadge, KV, Pill, Screen, Skeleton } from '../../src/components/ui';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { space, type as ty, useTheme } from '../../src/theme';
@@ -52,11 +53,12 @@ export default function Receipt() {
   return (
     <Screen>
       <Card style={{ alignItems: 'center', gap: space.sm, paddingVertical: space.xl }}>
-        <IconBadge name={paid ? 'checkmark-circle' : 'time'} tone={paid ? 'brand' : 'info'} size={64} />
+        <Pop><IconBadge name={paid ? 'checkmark-circle' : 'time'} tone={paid ? 'brand' : 'info'} size={64} /></Pop>
         <Pill center text={paid ? 'Paid (test payment)' : s.status} tone={paid ? 'brand' : 'info'} />
         <Text style={[ty.display, { color: t.text, fontVariant: ['tabular-nums'] }]}>{money(s.fee_cents)}</Text>
         <Text style={[ty.small, { color: t.muted }]}>{s.receipt_no}</Text>
       </Card>
+      <Enter i={2} style={{ gap: space.md }}>
       <Card style={{ gap: space.md }}>
         <KV k="Parking area" v={s.area_name} />
         {area ? <KV k="Operator" v={area.operator_name} /> : null}
@@ -68,6 +70,7 @@ export default function Receipt() {
         <Divider />
         <KV k="Total" v={money(s.fee_cents)} strong />
       </Card>
+      </Enter>
       <Body muted style={{ fontSize: 12, textAlign: 'center' }}>The server calculated this fee from the time it recorded, using the area&apos;s published rates. No money moved.</Body>
       <View>
         <Button variant="secondary" icon="share-outline" title="Share receipt" onPress={() => Share.share({ message: text })} />

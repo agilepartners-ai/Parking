@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, ScrollView, Text, View } from 'react-native';
+import { Animated, Easing, Linking, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   billedMinutes,
@@ -15,7 +15,10 @@ import {
 import AreaMap, { hasRealMap } from '../../src/components/AreaMap';
 import TestLocation from '../../src/components/TestLocation';
 import { Banner, Body, Button, Card, Chip, Divider, IconBadge, KV, Label, Pill, Row, SectionTitle, Skeleton, SkeletonCard, Spread } from '../../src/components/ui';
+import { Enter, useToast } from '../../src/components/Motion';
 import { confirmDialog, notify } from '../../src/lib/dialog';
+import { askForLeaveWatch, shouldOfferLeaveWatch, startLeaveWatch } from '../../src/lib/background';
+import { useRefresh } from '../../src/lib/useRefresh';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
 
@@ -48,7 +51,9 @@ function LiveDot({ color }: { color: string }) {
 export default function ParkScreen() {
   const t = useTheme();
   const router = useRouter();
-  const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, startParking, endParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable } = useApp();
+  const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, startParking, endParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable, refreshAll } = useApp();
+  const refreshControl = useRefresh(refreshAll);
+  const toast = useToast();
   const [vehicleId, setVehicleId] = useState<string | null>(null);
   const now = useNow(1000, !!activeSession);
 
@@ -70,7 +75,17 @@ export default function ParkScreen() {
   async function onStart() {
     if (!vehicleId) return;
     try {
-      await startParking(vehicleId);
+      const s = await startParking(vehicleId);
+      toast.show(`Parking started at ${s.area_name}`);
+      // Offer reminders once, in our own words, before Android sends the driver to system settings.
+      if (await shouldOfferLeaveWatch()) {
+        const yes = await confirmDialog(
+          'Remind me if I drive away?',
+          'ParkPay can nudge you to end parking when you leave the area, even with the app closed. Android will ask you to choose "Allow all the time". Your location is only used for this.',
+          'Turn on',
+        );
+        if (yes && (await askForLeaveWatch()) && currentArea) void startLeaveWatch({ areaName: currentArea.name, geometry: currentArea.geometry });
+      }
     } catch (e) {
       notify('Could not start parking', errorMessage(e));
     }
@@ -118,8 +133,13 @@ export default function ParkScreen() {
         style={{ flex: 1, marginTop: -space.xl, backgroundColor: t.bg, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet }}
         contentContainerStyle={{ padding: space.lg, gap: space.md, paddingBottom: 48 }}
         showsVerticalScrollIndicator={false}
+        refreshControl={refreshControl}
       >
         <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: t.border, marginBottom: 2 }} />
+
+        {locationDenied && !testSpot ? (
+          <Banner tone="warn" icon="location-outline" title="Location is off" text="ParkPay needs your location to find the parking area you are in. Turn it on in Settings, then pull down to refresh." action={<Button variant="secondary" size="sm" title="Open settings" onPress={() => void Linking.openSettings()} />} />
+        ) : null}
 
         {mode === 'live' && serverReachable === false ? (
           <Banner tone="warn" title="Can't reach the server" text="Check your connection. Anything you do now may not save." />
@@ -127,7 +147,7 @@ export default function ParkScreen() {
         {areasError ? <Banner tone="danger" title="Could not load parking areas" text={areasError} /> : null}
 
         {activeSession ? (
-          <>
+          <Enter key="live" style={{ gap: space.md }}>
             {leftArea ? <Banner tone="warn" icon="walk" title="Did you leave?" text={`You are no longer in ${activeSession.area_name}. End your session to stop the meter.`} /> : null}
             <Card tone="hero" style={{ gap: space.md, padding: space.xl }}>
               <Spread
@@ -164,7 +184,7 @@ export default function ParkScreen() {
             </Card>
             {sessionArea ? <RateCard area={sessionArea} /> : <SkeletonCard lines={3} />}
             {testSpot ? <Button variant="secondary" title="Demo: simulate driving away" icon="navigate" onPress={simulateLeaving} /> : null}
-          </>
+          </Enter>
         ) : (!areasLoaded && !!fix) || !sessionLoaded ? (
           <>
             <Card>
@@ -176,7 +196,7 @@ export default function ParkScreen() {
             <SkeletonCard lines={3} />
           </>
         ) : currentArea ? (
-          <>
+          <Enter key={currentArea.id} style={{ gap: space.md }}>
             <Card style={{ gap: space.md }}>
               <Spread left={<Pill text={currentArea.level === 3 ? 'Parking area' : 'City zone'} tone={currentArea.level === 3 ? 'brand' : 'info'} icon={currentArea.level === 3 ? 'pin' : 'business'} />} right={<Body muted style={ty.small}>{currentArea.operator_name}</Body>} />
               <View style={{ gap: 2 }}>
@@ -211,7 +231,7 @@ export default function ParkScreen() {
               <Text style={[ty.small, { color: t.muted, textAlign: 'center' }]}>You pay when you end, for the exact minutes used. The server keeps the time.</Text>
             </Card>
             <RateCard area={currentArea} />
-          </>
+          </Enter>
         ) : (
           <Card style={{ alignItems: 'center', gap: space.sm, paddingVertical: space.xl }}>
             <IconBadge name="map-outline" tone="warn" size={56} />

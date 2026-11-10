@@ -6,7 +6,6 @@ import {
   Easing,
   Pressable,
   RefreshControlProps,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -18,6 +17,7 @@ import {
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { radius, space, type as ty, useTheme } from '../theme';
+import KeyboardScroll, { useKeyboardScroll } from './KeyboardScroll';
 
 export type InputRef = React.ElementRef<typeof TextInput>;
 type IconName = keyof typeof Ionicons.glyphMap;
@@ -54,10 +54,10 @@ export function Screen({
   return (
     <SafeAreaView edges={['top']} style={{ flex: 1, backgroundColor: t.bg }}>
       {scroll ? (
-        <ScrollView contentContainerStyle={[inner, { paddingBottom: 48 }]} keyboardShouldPersistTaps="handled" refreshControl={refreshControl} showsVerticalScrollIndicator={false}>
+        <KeyboardScroll contentContainerStyle={inner} refreshControl={refreshControl}>
           {header}
           {children}
-        </ScrollView>
+        </KeyboardScroll>
       ) : (
         <View style={[{ flex: 1 }, inner]}>
           {header}
@@ -172,8 +172,10 @@ export function Button({
 export const Field = React.forwardRef<InputRef, TextInputProps & { label: string; error?: string | null }>(function Field({ label, style, error, ...rest }, ref) {
   const t = useTheme();
   const [focus, setFocus] = useState(false);
+  const { ensureVisible } = useKeyboardScroll();
+  const box = useRef<React.ElementRef<typeof View>>(null);
   return (
-    <View style={{ gap: 6 }}>
+    <View ref={box} style={{ gap: 6 }}>
       <Label>{label}</Label>
       <TextInput
         ref={ref}
@@ -182,6 +184,7 @@ export const Field = React.forwardRef<InputRef, TextInputProps & { label: string
         {...rest}
         onFocus={(e) => {
           setFocus(true);
+          ensureVisible(box.current);
           rest.onFocus?.(e);
         }}
         onBlur={(e) => {
