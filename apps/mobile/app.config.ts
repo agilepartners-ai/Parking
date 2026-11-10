@@ -54,7 +54,7 @@ const config: ExpoConfig = {
     ['expo-notifications', { color: '#0B8F5A' }],
   ],
   experiments: { typedRoutes: false },
-  extra: { eas: { projectId: process.env.EAS_PROJECT_ID } },
+  extra: { eas: { projectId: process.env.EAS_PROJECT_ID }, hasMapsKey: !!process.env.GOOGLE_MAPS_API_KEY },
 };
 
 export default config;

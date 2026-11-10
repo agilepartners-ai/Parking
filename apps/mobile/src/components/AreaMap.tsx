@@ -1,7 +1,10 @@
+import Constants, { ExecutionEnvironment } from 'expo-constants';
 import React, { useEffect, useRef } from 'react';
+import { Platform } from 'react-native';
 import MapView, { Marker, Polygon, PROVIDER_DEFAULT } from 'react-native-maps';
 import type { ParkingArea, Position } from '@parkpay/shared';
 import { useTheme } from '../theme';
+import AreaFallback from './AreaFallback';
 
 interface Props {
   areas: ParkingArea[];
@@ -12,8 +15,19 @@ interface Props {
 
 const toCoords = (ring: Position[]) => ring.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
 
+// Android standalone builds crash if the Google Maps SDK has no API key, so show a list instead.
+// (Expo Go ships its own key; iOS uses Apple Maps and needs none.)
+const mapsAvailable =
+  Platform.OS !== 'android' ||
+  Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
+  !!(Constants.expoConfig?.extra as { hasMapsKey?: boolean } | undefined)?.hasMapsKey;
+
 /** Native map: parking areas as coloured polygons, the driver as a pin. */
-export default function AreaMap({ areas, lat, lng, highlightId }: Props) {
+export default function AreaMap(props: Props) {
+  return mapsAvailable ? <NativeMap {...props} /> : <AreaFallback {...props} />;
+}
+
+function NativeMap({ areas, lat, lng, highlightId }: Props) {
   const t = useTheme();
   const ref = useRef<MapView>(null);
 
