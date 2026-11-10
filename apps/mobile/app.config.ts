@@ -7,6 +7,7 @@ const ID = 'com.parkpay.app'; // placeholder: pick the final reverse-domain id B
 const config: ExpoConfig = {
   name: APP_NAME,
   slug: 'parkpay',
+  owner: 'chopra.yatharth',
   scheme: 'parkpay',
   version: '0.1.0',
   orientation: 'portrait',
@@ -54,7 +55,7 @@ const config: ExpoConfig = {
     ['expo-notifications', { color: '#0B8F5A' }],
   ],
   experiments: { typedRoutes: false },
-  extra: { eas: { projectId: process.env.EAS_PROJECT_ID }, hasMapsKey: !!process.env.GOOGLE_MAPS_API_KEY },
+  extra: { eas: { projectId: 'ddf560e5-7102-44bf-9804-e384220499b1' }, hasMapsKey: !!process.env.GOOGLE_MAPS_API_KEY },
 };
 
 export default config;
