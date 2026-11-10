@@ -20,7 +20,7 @@ An **EAS build** is a cloud build started by `eas build`. Only that command (or 
 |---|---|---|
 | Screens, text, logic (JavaScript / TypeScript) while developing | Run `npm run mobile` (Metro) with the **development build** installed. Saving a file reloads the phone | No |
 | JS-only fix for people who already have the app | **Over-the-air update:** `eas update --channel preview --message "what changed"` (testers) or `--channel production` (store users). The app downloads it next time it opens | No |
-| Native change (new native library, permission, app icon, `version`) | **Local build** on this PC: `npm run build:apk` → `apps/mobile/android/app/build/outputs/apk/release/app-release.apk` | No |
+| Native change (new native library, permission, app icon, `version`) | **Local build**: `npm run build:apk` (needs Windows long paths, see below; otherwise a cloud build) | No once set up |
 | Release to Google Play / App Store | **Cloud build** with the production profile, because stores need the signed build from the stable EAS keystore | Yes, 1 per platform per release |
 
 Rules that keep the count low:
