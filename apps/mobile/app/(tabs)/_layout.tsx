@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Tabs } from 'expo-router';
 import React from 'react';
-import { Platform } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useApp } from '../../src/state/AppState';
 import { useTheme } from '../../src/theme';
 
@@ -13,6 +13,8 @@ const icon = (name: Icon, focused: Icon) => ({ color, focused: f, size }: { colo
 export default function TabsLayout() {
   const t = useTheme();
   const { isStaff, activeSession } = useApp();
+  const insets = useSafeAreaInsets();
+  const bottom = Math.max(insets.bottom, 8);
   return (
     <Tabs
       screenOptions={{
@@ -20,7 +22,7 @@ export default function TabsLayout() {
         tabBarActiveTintColor: t.brand,
         tabBarInactiveTintColor: t.muted,
         tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-        tabBarStyle: { backgroundColor: t.card, borderTopColor: t.border, height: Platform.OS === 'ios' ? 86 : 64, paddingTop: 6 },
+        tabBarStyle: { backgroundColor: t.card, borderTopColor: t.border, height: 56 + bottom, paddingTop: 6, paddingBottom: bottom },
       }}
     >
       <Tabs.Screen name="index" options={{ title: 'Park', tabBarIcon: icon('car-outline', 'car'), tabBarBadge: activeSession ? '' : undefined, tabBarBadgeStyle: { backgroundColor: t.brand, minWidth: 10, height: 10, borderRadius: 5 } }} />

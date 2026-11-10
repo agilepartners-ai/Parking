@@ -53,7 +53,7 @@ export default function Receipt() {
     <Screen>
       <Card style={{ alignItems: 'center', gap: space.sm, paddingVertical: space.xl }}>
         <IconBadge name={paid ? 'checkmark-circle' : 'time'} tone={paid ? 'brand' : 'info'} size={64} />
-        <Pill text={paid ? 'Paid (test payment)' : s.status} tone={paid ? 'brand' : 'info'} />
+        <Pill center text={paid ? 'Paid (test payment)' : s.status} tone={paid ? 'brand' : 'info'} />
         <Text style={[ty.display, { color: t.text, fontVariant: ['tabular-nums'] }]}>{money(s.fee_cents)}</Text>
         <Text style={[ty.small, { color: t.muted }]}>{s.receipt_no}</Text>
       </Card>

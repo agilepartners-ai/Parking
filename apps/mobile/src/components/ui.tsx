@@ -207,7 +207,7 @@ export const Field = React.forwardRef<InputRef, TextInputProps & { label: string
   );
 });
 
-export function Pill({ text, tone = 'brand', icon }: { text: string; tone?: 'brand' | 'danger' | 'warn' | 'info' | 'muted' | 'onHero'; icon?: IconName }) {
+export function Pill({ text, tone = 'brand', icon, center }: { center?: boolean; text: string; tone?: 'brand' | 'danger' | 'warn' | 'info' | 'muted' | 'onHero'; icon?: IconName }) {
   const t = useTheme();
   const map = {
     brand: [t.brandSoft, t.brand],
@@ -219,7 +219,7 @@ export function Pill({ text, tone = 'brand', icon }: { text: string; tone?: 'bra
   } as const;
   const [bg, fg] = map[tone];
   return (
-    <View style={{ backgroundColor: bg, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5 }}>
+    <View style={{ backgroundColor: bg, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 5, alignSelf: center ? 'center' : 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 5 }}>
       {icon ? <Ionicons name={icon} size={12} color={fg} /> : null}
       <Text style={{ color: fg, fontSize: 12, fontWeight: '700' }}>{text}</Text>
     </View>
