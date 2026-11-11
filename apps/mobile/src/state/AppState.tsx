@@ -88,7 +88,7 @@ interface Ctx {
   refreshLocation(): Promise<Fix | null>;
   setTestSpot(s: TestSpot | null): Promise<void>;
   simulateLeaving(): Promise<void>;
-  startParking(vehicleId: string): Promise<ParkingSession>;
+  startParking(vehicleId: string, plannedMinutes?: number | null): Promise<ParkingSession>;
   endParking(): Promise<ParkingSession>;
   deleteAccount(): Promise<void>;
 }
@@ -427,17 +427,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   }, [setTestSpot]);
 
   const startParking = useCallback(
-    async (vehicleId: string) => {
+    async (vehicleId: string, plannedMinutes: number | null = null) => {
       setBusy(true);
       try {
         // Ask the phone for a fresh position right now, so the session starts where the car actually is.
         const here = (await refreshLocation()) ?? fix;
         if (!here) throw new Error('We could not find your location. Turn on location for ParkPay, or pick a test spot.');
-        const s = await api.startSession({ vehicleId, lat: here.lat, lng: here.lng, accuracy: here.accuracy, speed: here.speed, key: uuid() });
+        const s = await api.startSession({ vehicleId, lat: here.lat, lng: here.lng, accuracy: here.accuracy, speed: here.speed, key: uuid(), plannedMinutes });
         setActiveSession(s);
         notifiedLeft.current = null;
         const area = areas.find((a) => a.id === s.area_id);
-        void scheduleSessionReminders(s.id, s.area_name, s.max_stay_minutes);
+        void scheduleSessionReminders(s.id, s.area_name, s.max_stay_minutes, s.planned_minutes ?? null);
         if (area) void startLeaveWatch({ areaName: area.name, geometry: area.geometry });
         return s;
       } finally {

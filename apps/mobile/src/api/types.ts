@@ -1,4 +1,4 @@
-import type { Citation, NearbyVehicle, ParkingArea, ParkingSession, PlateCheck, Role, Vehicle } from '@parkpay/shared';
+import type { Citation, NearbyVehicle, NewVehicle, ParkingArea, ParkingSession, PlateCheck, Role, Vehicle } from '@parkpay/shared';
 
 export interface Profile {
   id: string;
@@ -15,6 +15,8 @@ export interface StartInput {
   accuracy?: number | null;
   speed?: number | null;
   key: string;
+  /** Optional planned stay in minutes. */
+  plannedMinutes?: number | null;
 }
 
 export interface CitationInput {
@@ -42,7 +44,7 @@ export interface Api {
 
   // vehicles
   vehicles(): Promise<Vehicle[]>;
-  addVehicle(v: { plate: string; region?: string | null; nickname?: string | null }): Promise<Vehicle>;
+  addVehicle(v: NewVehicle): Promise<Vehicle>;
   removeVehicle(id: string): Promise<void>;
   setDefaultVehicle(id: string): Promise<void>;
 

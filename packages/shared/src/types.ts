@@ -54,6 +54,23 @@ export interface Vehicle {
   plate_region: string | null;
   nickname: string | null;
   is_default: boolean;
+  make?: string | null;
+  model?: string | null;
+  colour?: string | null;
+  size_class?: SizeClass;
+}
+
+export type SizeClass = 'compact' | 'standard' | 'large';
+
+/** Fields collected when a vehicle is added (sign-up asks for them once). */
+export interface NewVehicle {
+  plate: string;
+  region?: string | null;
+  nickname?: string | null;
+  make?: string | null;
+  model?: string | null;
+  colour?: string | null;
+  size_class?: SizeClass;
 }
 
 export interface ParkingSession {
@@ -73,6 +90,8 @@ export interface ParkingSession {
   currency: string;
   max_stay_minutes: number | null;
   receipt_no: string | null;
+  /** Minutes the driver said they plan to stay (optional). Drives the "time is almost up" reminder. */
+  planned_minutes?: number | null;
 }
 
 export interface Citation {

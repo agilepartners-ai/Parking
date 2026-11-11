@@ -48,7 +48,7 @@ export async function notifyNow(title: string, body: string) {
 const idsKey = (sessionId: string) => `parkpay.reminders.${sessionId}`;
 
 /** Reminders for a running session: 15 min before the maximum stay, and a long-stay nudge. */
-export async function scheduleSessionReminders(sessionId: string, areaName: string, maxStayMinutes: number | null) {
+export async function scheduleSessionReminders(sessionId: string, areaName: string, maxStayMinutes: number | null, plannedMinutes: number | null = null) {
   if (!supported) return;
   configure();
   try {
@@ -63,10 +63,16 @@ export async function scheduleSessionReminders(sessionId: string, areaName: stri
         }),
       );
     };
-    if (maxStayMinutes) {
+    // The driver's own planned time: warn 10 minutes before it (or at the halfway point of short stays), then at the end.
+    if (plannedMinutes) {
+      const lead = plannedMinutes > 20 ? 10 : Math.max(1, Math.floor(plannedMinutes / 2));
+      await add((plannedMinutes - lead) * 60, 'Your parking time is almost up', `${lead} min left of the time you planned in ${areaName}. Extend or end your session.`);
+      await add(plannedMinutes * 60, 'Planned time is up', `The time you planned in ${areaName} has ended. The meter keeps running until you end your session.`);
+    }
+    if (maxStayMinutes && !(plannedMinutes && plannedMinutes >= maxStayMinutes - 15)) {
       await add((maxStayMinutes - 15) * 60, 'Parking ends soon', `Your stay in ${areaName} reaches its limit in 15 minutes.`);
       await add(maxStayMinutes * 60, 'Maximum stay reached', `You have reached the maximum stay in ${areaName}. End your session to avoid a fine.`);
-    } else {
+    } else if (!plannedMinutes) {
       await add(4 * 3600, 'Still parked?', `Your session in ${areaName} has been running for 4 hours.`);
     }
     await AsyncStorage.setItem(idsKey(sessionId), JSON.stringify(ids));

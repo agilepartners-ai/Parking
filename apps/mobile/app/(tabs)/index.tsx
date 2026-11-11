@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Animated, Easing, Linking, ScrollView, Text, View } from 'react-native';
+import { Animated, Easing, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import {
   billedMinutes,
@@ -14,6 +14,7 @@ import {
 } from '@parkpay/shared';
 import AreaMap, { hasRealMap } from '../../src/components/AreaMap';
 import TestLocation from '../../src/components/TestLocation';
+import DurationSheet from '../../src/components/DurationSheet';
 import { Banner, Body, Button, Card, Chip, Divider, IconBadge, KV, Label, Pill, Row, SectionTitle, Skeleton, SkeletonCard, Spread } from '../../src/components/ui';
 import { Enter, useToast } from '../../src/components/Motion';
 import { confirmDialog, notify } from '../../src/lib/dialog';
@@ -55,6 +56,8 @@ export default function ParkScreen() {
   const refreshControl = useRefresh(refreshAll);
   const toast = useToast();
   const [vehicleId, setVehicleId] = useState<string | null>(null);
+  const [planned, setPlanned] = useState<number | null>(60);
+  const [sheetOpen, setSheetOpen] = useState(false);
   const now = useNow(1000, !!activeSession);
 
   useEffect(() => {
@@ -71,11 +74,12 @@ export default function ParkScreen() {
   const limit = activeSession?.max_stay_minutes ?? null;
   const usedMin = activeSession ? Math.max(0, Math.floor((now - startedMs) / 60_000)) : 0;
   const remaining = limit ? limit - usedMin : null;
+  const plannedLeft = activeSession?.planned_minutes ? activeSession.planned_minutes - usedMin : null;
 
   async function onStart() {
     if (!vehicleId) return;
     try {
-      const s = await startParking(vehicleId);
+      const s = await startParking(vehicleId, planned);
       toast.show(`Parking started at ${s.area_name}`);
       // Offer reminders once, in our own words, before Android sends the driver to system settings.
       if (await shouldOfferLeaveWatch()) {
@@ -173,7 +177,7 @@ export default function ParkScreen() {
                     </Text>
                   </View>
                 }
-                right={remaining != null ? <Pill tone={remaining <= 15 ? 'warn' : 'onHero'} icon="timer-outline" text={remaining > 0 ? `${remaining} min left` : 'Max stay reached'} /> : <Pill tone="onHero" text="No time limit" />}
+                right={plannedLeft != null ? <Pill tone={plannedLeft <= 10 ? 'warn' : 'onHero'} icon="timer-outline" text={plannedLeft > 0 ? `${formatDuration(plannedLeft)} planned left` : 'Planned time is up'} /> : remaining != null ? <Pill tone={remaining <= 15 ? 'warn' : 'onHero'} icon="timer-outline" text={remaining > 0 ? `${remaining} min left` : 'Max stay reached'} /> : <Pill tone="onHero" text="No time limit" />}
               />
               {limit ? (
                 <View style={{ height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.14)', overflow: 'hidden' }}>
@@ -227,6 +231,22 @@ export default function ParkScreen() {
               ) : (
                 <Button variant="secondary" title="Add your vehicle" icon="add" size="sm" onPress={() => router.push('/vehicles')} />
               )}
+              <Label>How long</Label>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Choose how long you will park"
+                onPress={() => setSheetOpen(true)}
+                style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', backgroundColor: t.brandSoft, borderRadius: radius.card, paddingHorizontal: space.lg, paddingVertical: 14, opacity: pressed ? 0.85 : 1 })}
+              >
+                <Row style={{ gap: 10 }}>
+                  <Ionicons name="time-outline" size={22} color={t.brand} />
+                  <Text style={{ color: t.text, fontSize: 18, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{planned ? formatDuration(planned) : 'Until I end it'}</Text>
+                </Row>
+                <Row style={{ gap: 4 }}>
+                  <Text style={{ color: t.brand, fontWeight: '700' }}>Change</Text>
+                  <Ionicons name="chevron-forward" size={16} color={t.brand} />
+                </Row>
+              </Pressable>
               <Button title="Start parking" icon="play" onPress={onStart} loading={busy} disabled={!vehicleId} />
               <Text style={[ty.small, { color: t.muted, textAlign: 'center' }]}>You pay when you end, for the exact minutes used. The server keeps the time.</Text>
             </Card>
@@ -243,6 +263,16 @@ export default function ParkScreen() {
         )}
         <TestLocation />
       </ScrollView>
+      <DurationSheet
+        visible={sheetOpen}
+        area={currentArea}
+        initial={planned}
+        onClose={() => setSheetOpen(false)}
+        onConfirm={(m) => {
+          setPlanned(m);
+          setSheetOpen(false);
+        }}
+      />
     </View>
   );
 }

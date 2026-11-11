@@ -149,7 +149,7 @@ export const demoApi: Api = {
     const plate = normalizePlate(v.plate);
     if (plate.length < 2 || plate.length > 10) throw new ApiError('invalid_plate');
     if (s.vehicles.some((x) => x.plate === plate)) throw new ApiError('duplicate_vehicle', 'You already added this plate.');
-    const veh: Vehicle = { id: uid(), plate, plate_region: v.region?.trim().toUpperCase() || null, nickname: v.nickname?.trim() || null, is_default: s.vehicles.length === 0 };
+    const veh: Vehicle = { id: uid(), plate, plate_region: v.region?.trim().toUpperCase() || null, nickname: v.nickname?.trim() || null, is_default: s.vehicles.length === 0, make: v.make?.trim() || null, model: v.model?.trim() || null, colour: v.colour?.trim() || null, size_class: v.size_class ?? 'standard' };
     s.vehicles.push(veh);
     await save();
     return veh;
@@ -199,6 +199,7 @@ export const demoApi: Api = {
       currency: area.plan.currency,
       max_stay_minutes: area.max_stay_minutes,
       receipt_no: null,
+      planned_minutes: i.plannedMinutes ? Math.min(i.plannedMinutes, area.max_stay_minutes ?? 1440) : null,
       _lat: i.lat,
       _lng: i.lng,
       _key: i.key,

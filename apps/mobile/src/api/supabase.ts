@@ -45,6 +45,7 @@ async function myAccountId(): Promise<string> {
   return data.account_id as string;
 }
 
+const VEHICLE_COLS = 'id, plate, plate_region, nickname, is_default, make, model, colour, size_class';
 const num = (n: number | null | undefined) => (n == null ? null : Number(n.toFixed(2)));
 
 export const supabaseApi: Api = {
@@ -89,7 +90,7 @@ export const supabaseApi: Api = {
   async vehicles() {
     const { data, error } = await sb()
       .from('vehicle')
-      .select('id, plate, plate_region, nickname, is_default')
+      .select(VEHICLE_COLS)
       .is('archived_at', null)
       .order('created_at');
     if (error) throw toApiError(error);
@@ -106,9 +107,13 @@ export const supabaseApi: Api = {
         plate_region: v.region?.trim().toUpperCase() || null,
         plate_country: 'CA',
         nickname: v.nickname?.trim() || null,
+        make: v.make?.trim() || null,
+        model: v.model?.trim() || null,
+        colour: v.colour?.trim() || null,
+        size_class: v.size_class ?? 'standard',
         is_default: existing.length === 0,
       })
-      .select('id, plate, plate_region, nickname, is_default')
+      .select(VEHICLE_COLS)
       .single();
     if (error) throw toApiError(error);
     return data as Vehicle;
@@ -135,6 +140,7 @@ export const supabaseApi: Api = {
       p_accuracy: num(i.accuracy),
       p_speed: num(i.speed),
       p_idempotency_key: i.key,
+      p_planned_minutes: i.plannedMinutes ?? null,
     }),
   endSession: (id, lat, lng) => rpc<ParkingSession>('end_session', { p_session_id: id, p_lat: lat ?? null, p_lng: lng ?? null }),
   activeSession: () => rpc<ParkingSession | null>('my_active_session'),
