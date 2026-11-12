@@ -1,27 +1,46 @@
 ---
 title: End-to-end plan - from today's prototype to a live parking product
 audience: the owner (non-technical decisions) and any developer
-status: draft 2026-11-12, waiting for the owner's answers in section 9
+status: phases 1 and 2 built 2026-11-13 on the section 9 defaults; phases 3 to 6 wait on accounts only the owner can open
 supersedes: the roadmap table in 07-modernization-plan.md (that one pre-dates the build)
 ---
 
 # End-to-end plan
 
-## 1. Where we are today (honest status)
+## 1. Where we are today (honest status, 2026-11-13)
 
-| Area | State |
+Decisions: the owner answered "use good defaults" to section 9, so the defaults written there are in force (Toronto/CAD, percentage fee, email + password, pay at end, platform notices instead of legal fines, operator admin publishes).
+
+| Area | State | Checked how |
+|---|---|---|
+| Driver app (Android + iOS, one Expo codebase) | **Works**: one-flow sign-up (account, vehicle with make/colour/size, permission explanations), find area by GPS, wheel time picker, start/end, fee, receipt, history, tickets, account deletion | Android emulator. **Not yet on a physical phone or an iPhone** |
+| Reminders | **Built**: planned time almost up / up, max stay, forgot to end (12 h), left the area, driving fast with a session open, arrival at a published area (phone geofences) | Left/fast: emulator with the test location. Timed ones: scheduled, not waited out. **Arrival and background ones need a real phone with "Allow all the time"** |
+| Officer mode (same app, role-gated) | Basic: check a plate, valid-vehicles list, citation form | Database checks |
+| Operator console (web) | **v2**: draw areas, draft and publish with version history, rates, dashboard with charts, session search + CSV export, refunds, tickets (void), staff, audit log | Compiles and builds; server functions covered by database checks. **Screens not yet clicked through in a browser** |
+| Platform admin | Same console, extra tab: operators, service fee, operator admins | Database checks |
+| Backend (Supabase: Postgres + PostGIS) | 5 migrations applied to the project, row-level security, fee engine, **108 database checks pass** | `node supabase/tests/run.mjs` |
+| Price changes | A tariff edit never changes a session that is already running (old tariff kept for it) | Database check |
+| Google Maps | Key read from the build environment or the local `.env` (never committed). Map turns on in app **0.2.0**; older installs keep the list view | Config resolved. **Needs one new native build to see the map** |
+| Public site | Static pages in `apps/site`: how it works, privacy, terms, support, delete-my-account | Generated. **Legal text is a draft, not lawyer-reviewed. Not deployed** |
+| Payments | **Simulated** (no Stripe). Refunds are recorded only | - |
+| Server push (forgot to end, ticket issued, payment failed) | **Not built**: needs Firebase (FCM) credentials for Android and an Apple key | - |
+| Hosting / live | **Not deployed.** Console and site are ready for Cloudflare Pages | - |
+| Design | One coherent design system across app, console and site. Not matched to a Figma file (deferred by the owner) | - |
+| Legal / IP | Patent ownership is the owner's stated assumption, unverified. No store accounts | - |
+
+### What only the owner can do next
+
+| Item | Why it blocks |
 |---|---|
-| Driver app (Android + iOS, one Expo codebase) | **Works** on the emulator: sign-in, vehicles, find area by GPS, start/end, fee, receipt, history, account deletion. Not yet run on a physical phone |
-| Officer mode (inside the same app, role-gated) | **Basic**: check a plate, valid-vehicles list, citation form. Not tested with a real officer flow |
-| Operator console (web) | **Basic**: draw areas, edit rates, staff. No revenue reports, approvals or disputes |
-| Backend (Supabase: Postgres + PostGIS) | **Works**: 3 migrations, row-level security, fee engine, 80 database checks. Not yet tuned for load |
-| Payments | **Simulated** (no Stripe) |
-| Reminders | **Partial**: "did you leave the area" while the app is open, and a basic local reminder. No arrival reminder, no speed reminder, no server push |
-| Sign-up | **Partial**: email + password only. The vehicle is added afterwards on another screen |
-| Google Maps | Code ready, **no key yet** (list view shown instead of a map on Android) |
-| Design | A coherent design system exists. **Not** yet matched to a Figma reference (needs a file link, see 8) |
-| Hosting / live | **Not deployed.** Only a pre-release APK on GitHub |
-| Legal / IP | Patent ownership is your stated assumption, unverified. No privacy policy, terms or store accounts |
+| Approve one EAS Android build of 0.2.0 | Shows the Google map and bakes in the arrival-reminder code path |
+| Restrict the Maps key (package `com.parkpay.app` + SHA-1, Maps SDK for Android only) and set a budget alert | The key is currently unrestricted |
+| Test on a real Android phone, then an iPhone | Background location and notifications behave differently from the emulator |
+| Stripe account (business verification) | Real payments, card hold, payouts |
+| Firebase project + `google-services.json`; Apple Developer account ($99/yr) | Push notifications, iOS build, App Store |
+| Play Console ($25) | Play Store; new personal accounts need a closed-test period |
+| Product name, domain, legal entity, support mailbox | Bundle id cannot change after the first store upload; site and policies need them |
+| Lawyer review of privacy policy and terms; patent assignment and maintenance-fee check | Before public launch |
+| Supabase paid plan for production (backups, point-in-time recovery) | Before real users |
 
 ## 2. The shape of the product (answers "separate apps or one?")
 
