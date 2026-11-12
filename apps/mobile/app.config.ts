@@ -4,12 +4,30 @@ import type { ExpoConfig } from 'expo/config';
 const APP_NAME = 'ParkPay';
 const ID = 'com.parkpay.app'; // placeholder: pick the final reverse-domain id BEFORE the first store upload (cannot change later)
 
+// Google Maps key: from the build environment (EAS secret GOOGLE_MAPS_API_KEY), or for local builds from the
+// repo-root .env (gitignored; accepts GOOGLE_MAPS_API_KEY or Maps_key). It is never written into the repository.
+declare const require: (m: string) => any; // eslint-disable-line @typescript-eslint/no-explicit-any
+declare const __dirname: string;
+function mapsKey(): string | undefined {
+  if (process.env.GOOGLE_MAPS_API_KEY) return process.env.GOOGLE_MAPS_API_KEY;
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const text: string = fs.readFileSync(path.join(__dirname, '..', '..', '.env'), 'utf8');
+    const m = text.match(/^\s*(?:GOOGLE_MAPS_API_KEY|Maps_key)\s*=\s*["']?([^"'\r\n]+)/m);
+    return m ? m[1].trim() : undefined;
+  } catch {
+    return undefined;
+  }
+}
+const MAPS_KEY = mapsKey();
+
 const config: ExpoConfig = {
   name: APP_NAME,
   slug: 'parkpay',
   owner: 'chopra.yatharth',
   scheme: 'parkpay',
-  version: '0.1.1',
+  version: '0.2.0',
   orientation: 'portrait',
   // Over-the-air updates: JavaScript-only fixes reach installed apps without a new store build (and without using EAS build credits).
   // A new native build is needed only when native code or permissions change; bump `version` then (runtime = app version).
@@ -20,6 +38,7 @@ const config: ExpoConfig = {
   ios: {
     supportsTablet: true,
     bundleIdentifier: ID,
+    config: MAPS_KEY ? { googleMapsApiKey: MAPS_KEY } : undefined,
     infoPlist: {
       ITSAppUsesNonExemptEncryption: false,
       NSLocationWhenInUseUsageDescription:
@@ -39,7 +58,7 @@ const config: ExpoConfig = {
     },
     predictiveBackGestureEnabled: false,
     // Needed for Google Maps in standalone/dev builds (Expo Go has its own key). Set GOOGLE_MAPS_API_KEY in EAS secrets.
-    config: process.env.GOOGLE_MAPS_API_KEY ? { googleMaps: { apiKey: process.env.GOOGLE_MAPS_API_KEY } } : undefined,
+    config: MAPS_KEY ? { googleMaps: { apiKey: MAPS_KEY } } : undefined,
   },
   web: { favicon: './assets/favicon.png', bundler: 'metro' },
   plugins: [
@@ -67,7 +86,7 @@ const config: ExpoConfig = {
     ],
   ],
   experiments: { typedRoutes: false },
-  extra: { eas: { projectId: 'ddf560e5-7102-44bf-9804-e384220499b1' }, hasMapsKey: !!process.env.GOOGLE_MAPS_API_KEY },
+  extra: { eas: { projectId: 'ddf560e5-7102-44bf-9804-e384220499b1' }, hasMapsKey: !!MAPS_KEY },
 };
 
 export default config;

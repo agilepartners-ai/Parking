@@ -2,8 +2,10 @@ import { Enter } from '../../src/components/Motion';
 import { useFocusEffect, useRouter } from 'expo-router';
 import React, { useCallback, useState } from 'react';
 import { Pressable, RefreshControl, Text, View } from 'react-native';
-import { formatDuration, formatMoney, type ParkingSession } from '@parkpay/shared';
+import { formatDuration, formatMoney, type Citation, type ParkingSession } from '@parkpay/shared';
 import { Banner, Body, Button, Card, Empty, IconBadge, Pill, Screen, SkeletonCard } from '../../src/components/ui';
+import { useToast } from '../../src/components/Motion';
+import { confirmDialog, notify } from '../../src/lib/dialog';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { type as ty, useTheme } from '../../src/theme';
 
@@ -13,12 +15,16 @@ export default function HistoryScreen() {
   const { api } = useApp();
   const [items, setItems] = useState<ParkingSession[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tickets, setTickets] = useState<Citation[]>([]);
+  const [paying, setPaying] = useState<string | null>(null);
+  const toast = useToast();
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setError(null);
       setItems(await api.sessions());
+      api.myCitations().then(setTickets).catch(() => undefined);
     } catch (e) {
       setError(errorMessage(e));
       setItems((cur) => cur ?? []);
@@ -31,6 +37,20 @@ export default function HistoryScreen() {
     }, [load]),
   );
 
+  async function pay(c: Citation) {
+    if (!(await confirmDialog('Pay this ticket?', `${formatMoney(c.fine_cents, c.currency)} for ${c.reason}. This is a test payment: no money moves.`, 'Pay'))) return;
+    setPaying(c.id);
+    try {
+      await api.payCitation(c.id);
+      toast.show('Ticket paid');
+      await load();
+    } catch (e) {
+      notify('Could not pay', errorMessage(e));
+    } finally {
+      setPaying(null);
+    }
+  }
+
   const done = (items ?? []).filter((s) => s.status === 'completed');
   const total = done.reduce((n, s) => n + (s.fee_cents ?? 0), 0);
 
@@ -41,6 +61,19 @@ export default function HistoryScreen() {
       refreshControl={<RefreshControl refreshing={refreshing} tintColor={t.brand} onRefresh={async () => { setRefreshing(true); await load(); setRefreshing(false); }} />}
     >
       {error ? <Banner tone="danger" title="Could not load history" text={error} action={<Button size="sm" variant="secondary" title="Try again" onPress={load} style={{ marginTop: 8, alignSelf: 'flex-start' }} />} /> : null}
+      {tickets.map((c) => (
+        <Card key={c.id} tone={c.status === 'issued' ? 'warn' : undefined} style={{ gap: 10 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+            <IconBadge name="document-text" tone={c.status === 'issued' ? 'warn' : 'muted'} />
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[ty.body, { color: t.text, fontWeight: '700' }]} numberOfLines={1}>Ticket · {c.plate}</Text>
+              <Text style={[ty.small, { color: t.muted }]} numberOfLines={2}>{c.reason}{c.area_name ? ` · ${c.area_name}` : ''} · {new Date(c.issued_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}</Text>
+            </View>
+            <Text style={{ color: t.text, fontSize: 17, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{formatMoney(c.fine_cents, c.currency)}</Text>
+          </View>
+          {c.status === 'issued' ? <Button size="sm" title="Pay ticket" icon="card" loading={paying === c.id} onPress={() => pay(c)} /> : <Pill text={c.status === 'paid' ? 'Paid' : c.status ?? ''} tone="muted" />}
+        </Card>
+      ))}
       {items === null ? (
         <>
           <SkeletonCard lines={2} />
@@ -48,7 +81,7 @@ export default function HistoryScreen() {
           <SkeletonCard lines={2} />
         </>
       ) : null}
-      {items && items.length === 0 && !error ? <Empty icon="receipt-outline" title="No parking yet" hint="Your finished sessions and receipts will show up here." action={<Button size="sm" title="Start parking" onPress={() => router.navigate('/')} />} /> : null}
+      {items && items.length === 0 && !error && tickets.length === 0 ? <Empty icon="receipt-outline" title="No parking yet" hint="Your finished sessions and receipts will show up here." action={<Button size="sm" title="Start parking" onPress={() => router.navigate('/')} />} /> : null}
       {(items ?? []).map((s, i) => (
         <Enter key={s.id} i={i}>
         <Pressable accessibilityRole="button" onPress={() => (s.status === 'completed' ? router.push({ pathname: '/receipt/[id]', params: { id: s.id } }) : router.navigate('/'))}>

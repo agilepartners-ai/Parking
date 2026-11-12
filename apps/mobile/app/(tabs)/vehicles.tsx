@@ -1,7 +1,8 @@
 import React, { useState } from 'react';
 import { Keyboard, Text, View } from 'react-native';
 import { Enter, useToast } from '../../src/components/Motion';
-import { Body, Button, Card, Empty, ErrorText, Field, IconBadge, Pill, Screen, SectionTitle, Skeleton } from '../../src/components/ui';
+import { Body, Button, Card, Empty, ErrorText, IconBadge, Pill, Screen, SectionTitle, Skeleton } from '../../src/components/ui';
+import VehicleForm, { emptyVehicle, toNewVehicle, vehicleValid } from '../../src/components/VehicleForm';
 import { confirmDialog, notify } from '../../src/lib/dialog';
 import { useRefresh } from '../../src/lib/useRefresh';
 import { errorMessage, useApp } from '../../src/state/AppState';
@@ -10,9 +11,7 @@ import { radius, space, type as ty, useTheme } from '../../src/theme';
 export default function VehiclesScreen() {
   const t = useTheme();
   const { api, vehicles, vehiclesLoaded, refreshVehicles, activeSession } = useApp();
-  const [plate, setPlate] = useState('');
-  const [region, setRegion] = useState('ON');
-  const [nickname, setNickname] = useState('');
+  const [draft, setDraft] = useState(emptyVehicle());
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [working, setWorking] = useState<string | null>(null);
@@ -23,9 +22,8 @@ export default function VehiclesScreen() {
     setError(null);
     setLoading(true);
     try {
-      await api.addVehicle({ plate, region, nickname });
-      setPlate('');
-      setNickname('');
+      await api.addVehicle(toNewVehicle(draft));
+      setDraft(emptyVehicle());
       Keyboard.dismiss();
       await refreshVehicles();
       toast.show('Vehicle added');
@@ -80,7 +78,7 @@ export default function VehiclesScreen() {
                 <View style={{ alignSelf: 'flex-start', borderWidth: 1.5, borderColor: t.text, borderRadius: 6, paddingHorizontal: 10, paddingVertical: 3 }}>
                   <Text style={{ color: t.text, fontSize: 19, fontWeight: '800', letterSpacing: 2, fontVariant: ['tabular-nums'] }}>{v.plate}</Text>
                 </View>
-                <Text style={[ty.small, { color: t.muted }]}>{[v.plate_region, v.nickname].filter(Boolean).join(' · ') || 'No nickname'}</Text>
+                <Text style={[ty.small, { color: t.muted }]}>{[v.plate_region, [v.colour, v.make, v.model].filter(Boolean).join(' ') || v.nickname, v.size_class && v.size_class !== 'standard' ? v.size_class : null].filter(Boolean).join(' · ') || 'No details'}</Text>
               </View>
               {v.is_default ? <Pill text="Default" /> : null}
             </View>
@@ -94,13 +92,9 @@ export default function VehiclesScreen() {
       )}
       <SectionTitle>Add a vehicle</SectionTitle>
       <Card style={{ gap: space.md }}>
-        <Field label="Licence plate" value={plate} onChangeText={setPlate} placeholder="ABCD 123" autoCapitalize="characters" autoCorrect={false} />
-        <View style={{ flexDirection: 'row', gap: 12 }}>
-          <View style={{ width: 96 }}><Field label="Region" value={region} onChangeText={setRegion} placeholder="ON" autoCapitalize="characters" maxLength={3} /></View>
-          <View style={{ flex: 1 }}><Field label="Nickname (optional)" value={nickname} onChangeText={setNickname} placeholder="Blue Corolla" /></View>
-        </View>
+        <VehicleForm value={draft} onChange={setDraft} />
         <ErrorText>{error}</ErrorText>
-        <Button title="Add vehicle" icon="add" onPress={add} loading={loading} disabled={plate.trim().length < 2} />
+        <Button title="Add vehicle" icon="add" onPress={add} loading={loading} disabled={!vehicleValid(draft)} />
       </Card>
       <View style={{ height: radius.sm }} />
       <Body muted style={{ fontSize: 12, textAlign: 'center' }}>Officers can check a plate against active parking sessions.</Body>

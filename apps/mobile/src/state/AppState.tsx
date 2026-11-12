@@ -18,6 +18,7 @@ import { errorMessage } from '../api/errors';
 import { liveConfigured, pingBackend, supabaseApi } from '../api/supabase';
 import type { Api, Profile } from '../api/types';
 import { startLeaveWatch, stopLeaveWatch } from '../lib/background';
+import { FAST_MPS, stopArrivalGeofences, syncArrivalGeofences } from '../lib/reminders';
 import { withTimeout } from '../lib/boot';
 import { cancelSessionReminders, notifyNow, scheduleSessionReminders } from '../lib/notify';
 
@@ -73,6 +74,11 @@ interface Ctx {
   currentArea: ParkingArea | null;
   sessionArea: ParkingArea | null;
   leftArea: boolean;
+  /** Driving fast while a session is still open (patent claim 1: location change + speed). */
+  movingFast: boolean;
+  /** True while the one-time sign-up steps (vehicle, permissions) are showing. */
+  onboarding: boolean;
+  finishOnboarding(): Promise<void>;
   testSpot: TestSpot | null;
   busy: boolean;
 
@@ -102,6 +108,7 @@ export const useApp = () => {
 
 const MODE_KEY = 'parkpay.mode';
 const SPOT_KEY = 'parkpay.testSpot';
+const ONBOARD_KEY = 'parkpay.onboarded.';
 const uuid = () => 'k' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -121,6 +128,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [locationDenied, setLocationDenied] = useState(false);
   const [leftArea, setLeftArea] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [onboarding, setOnboarding] = useState(false);
+  const [movingFast, setMovingFast] = useState(false);
+  const onboardChecked = useRef<string | null>(null);
+  const fastCount = useRef(0);
+  const notifiedFast = useRef<string | null>(null);
   const outsideCount = useRef(0);
   const notifiedLeft = useRef<string | null>(null);
   const lastPing = useRef(0);
@@ -195,7 +207,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---- real GPS (only when not using a test spot) ----------------------------------------
   useEffect(() => {
-    if (testSpot || !user || Platform.OS === 'web') return;
+    if (testSpot || !user || onboarding || Platform.OS === 'web') return; // during sign-up we explain first, then ask
     let sub: Location.LocationSubscription | undefined;
     let cancelled = false;
     (async () => {
@@ -223,7 +235,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       cancelled = true;
       sub?.remove();
     };
-  }, [testSpot, user]);
+  }, [testSpot, user, onboarding]);
 
   // ---- data refresh -----------------------------------------------------------------------
   const [vehiclesLoaded, setVehiclesLoaded] = useState(false);
@@ -298,6 +310,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setAreasLoaded(false);
       setAreasError(null);
       lastAreaFetch.current = null;
+      setOnboarding(false);
+      onboardChecked.current = null;
+      void stopArrivalGeofences();
       return;
     }
     refreshVehicles().catch(() => undefined);
@@ -370,7 +385,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setLeftArea(true);
       if (notifiedLeft.current !== activeSession.id) {
         notifiedLeft.current = activeSession.id;
-        void notifyNow('Did you leave?', `You are no longer in ${sessionArea.name}. End your parking session to stop the meter.`);
+        notifiedFast.current = activeSession.id; // one notification for leaving, not a second one for speed
+        const driving = (fix.speed ?? 0) >= FAST_MPS;
+        void notifyNow(
+          driving ? 'Driving with parking still running' : 'Did you leave?',
+          driving
+            ? `You have left ${sessionArea.name} and are moving fast. End your parking session to stop paying.`
+            : `You are no longer in ${sessionArea.name}. End your parking session to stop the meter.`,
+        );
       }
     }
   }, [fix?.lat, fix?.lng, fix?.speed, activeSession?.id, sessionArea?.id]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -382,12 +404,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     api.ping(activeSession.id, fix.lat, fix.lng, fix.accuracy, fix.speed).catch(() => undefined);
   }, [fix?.lat, fix?.lng, activeSession?.id, api]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- one-time sign-up steps: an account with no vehicle sees them once ----------------
+  useEffect(() => {
+    // checked once per sign-in, when the vehicle list first arrives (removing your last car later does not re-trigger it)
+    if (!user || !vehiclesLoaded || onboardChecked.current === user.id) return;
+    onboardChecked.current = user.id;
+    if (user.role !== 'driver' || vehicles.length > 0 || onboarding) return;
+    let cancelled = false;
+    AsyncStorage.getItem(ONBOARD_KEY + user.id)
+      .then((done) => {
+        if (!done && !cancelled) setOnboarding(true);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id, vehiclesLoaded]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const finishOnboarding = useCallback(async () => {
+    if (user) await AsyncStorage.setItem(ONBOARD_KEY + user.id, '1').catch(() => undefined);
+    setOnboarding(false);
+  }, [user]);
+
+  // ---- "moving fast with a session open" ------------------------------------------------
+  useEffect(() => {
+    if (!activeSession || !fix) {
+      fastCount.current = 0;
+      setMovingFast(false);
+      return;
+    }
+    if ((fix.speed ?? 0) >= FAST_MPS) fastCount.current += 1;
+    else {
+      fastCount.current = 0;
+      setMovingFast(false);
+      return;
+    }
+    if (fastCount.current >= (fix.source === 'test' ? 1 : 3)) {
+      setMovingFast(true);
+      if (notifiedFast.current !== activeSession.id) {
+        notifiedFast.current = activeSession.id;
+        void notifyNow('Driving with parking still running', `You are moving fast but your session in ${activeSession.area_name} is still open. End it to stop paying.`);
+      }
+    }
+  }, [fix?.lat, fix?.lng, fix?.speed, activeSession?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- arrival reminders: keep the phone's geofences on the nearest areas ---------------
+  useEffect(() => {
+    if (!user || !fix || fix.source !== 'gps' || !areas.length) return;
+    void syncArrivalGeofences(areas, fix.lat, fix.lng);
+  }, [areas, user?.id, lastAreaFetch.current?.lat, lastAreaFetch.current?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- actions ----------------------------------------------------------------------------
   const signIn = useCallback(async (email: string, password: string) => setUser(await api.signIn(email, password)), [api]);
   const signUp = useCallback(
     async (email: string, password: string, name: string) => {
       const u = await api.signUp(email, password, name);
       if (!u) return 'confirm' as const;
+      setOnboarding(true); // straight into vehicle details, in the same flow
       setUser(u);
       return 'ok' as const;
     },
@@ -490,6 +563,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     currentArea,
     sessionArea,
     leftArea,
+    movingFast,
+    onboarding,
+    finishOnboarding,
     testSpot,
     busy,
     switchMode,

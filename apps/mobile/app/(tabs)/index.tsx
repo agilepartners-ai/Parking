@@ -52,7 +52,7 @@ function LiveDot({ color }: { color: string }) {
 export default function ParkScreen() {
   const t = useTheme();
   const router = useRouter();
-  const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, startParking, endParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable, refreshAll } = useApp();
+  const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, movingFast, startParking, endParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable, refreshAll } = useApp();
   const refreshControl = useRefresh(refreshAll);
   const toast = useToast();
   const [vehicleId, setVehicleId] = useState<string | null>(null);
@@ -152,6 +152,7 @@ export default function ParkScreen() {
 
         {activeSession ? (
           <Enter key="live" style={{ gap: space.md }}>
+            {movingFast && !leftArea ? <Banner tone="warn" icon="speedometer-outline" title="Driving with parking still running" text={`You are moving fast, but your session in ${activeSession.area_name} is still open. End it to stop paying.`} /> : null}
             {leftArea ? <Banner tone="warn" icon="walk" title="Did you leave?" text={`You are no longer in ${activeSession.area_name}. End your session to stop the meter.`} /> : null}
             <Card tone="hero" style={{ gap: space.md, padding: space.xl }}>
               <Spread

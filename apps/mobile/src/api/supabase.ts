@@ -149,6 +149,10 @@ export const supabaseApi: Api = {
     await rpc('session_ping', { p_session_id: sessionId, p_lat: lat, p_lng: lng, p_accuracy: num(accuracy), p_speed: num(speed) });
   },
 
+  myCitations: () => rpc<Citation[]>('my_citations'),
+  payCitation: async (id) => {
+    await rpc('pay_citation', { p_citation_id: id });
+  },
   officerCheck: (plate, lat, lng) => rpc<PlateCheck>('officer_check_plate', { p_plate: plate, p_region: null, p_lat: lat ?? null, p_lng: lng ?? null }),
   officerNearby: (lat, lng, radius) => rpc<NearbyVehicle[]>('officer_valid_vehicles', { p_lat: lat, p_lng: lng, p_radius_m: radius }),
   officerCite: (i: CitationInput) =>

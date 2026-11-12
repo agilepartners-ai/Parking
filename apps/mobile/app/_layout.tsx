@@ -21,14 +21,17 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Pro
 }
 
 function Gate() {
-  const { ready, user, bootSteps, skipBoot } = useApp();
+  const { ready, user, bootSteps, skipBoot, onboarding } = useApp();
   const t = useTheme();
   if (!ready) return <BootScreen steps={bootSteps} onSkip={skipBoot} />;
   return (
     <>
       <StatusBar style={t.dark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom' }}>
-        <Stack.Protected guard={!!user}>
+        <Stack.Protected guard={!!user && onboarding}>
+          <Stack.Screen name="onboarding" />
+        </Stack.Protected>
+        <Stack.Protected guard={!!user && !onboarding}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen
             name="receipt/[id]"

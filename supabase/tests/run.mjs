@@ -212,6 +212,63 @@ await as(omar, `select operator_set_user_role('bob@test.dev','officer')`);
 eq('operator can appoint an officer', (await sys(`select role, operator_id from app_user where email = 'bob@test.dev'`))[0].role, 'officer');
 check('operator cannot create another admin', /forbidden/.test((await as(omar, `select operator_set_user_role('bob@test.dev','platform_admin')`)).error ?? ''));
 
+// ---- 7b. admin v2: publish, versions, tariff protection, reports, refunds, tickets --------
+console.log('\nadmin v2');
+check("driver cannot publish", /forbidden/.test((await as(alice, `select operator_publish_area($1, true)`, [created.id])).error ?? ""));
+const pub = val(await as(omar, `select operator_publish_area($1, true) as a`, [created.id]), "a");
+check("publish makes the area live", pub?.active === true && val(await as(alice, `select detect_area(43.661, -79.409) as a`), "a").name === "Annex Test Lot");
+await as(omar, `select operator_publish_area($1, false)`, [created.id]);
+eq("unpublish hides it again", val(await as(alice, `select detect_area(43.661, -79.409) as a`), "a").name, "Toronto General Zone");
+const versions = val(await as(omar, `select operator_area_versions($1) as v`, [created.id]), "v");
+check("every save and publish is versioned", versions.length >= 5 && versions[0].action === "unpublish", JSON.stringify(versions.map((v) => v.action)));
+const king = val(await as(omar, `select operator_areas() as a`), "a").find((a) => a.name === "King West Street Zone");
+const planBefore = (await sys(`select rate_plan_id from parking_session where user_id = $1 and status = 'active'`, [alice]))[0].rate_plan_id;
+const kingSaved = val(await as(omar, `select operator_save_area($1, $2, $3, $4::jsonb, $5, true, $6::jsonb) as a`, [king.id, king.name, king.level, JSON.stringify(king.geometry), king.max_stay_minutes, JSON.stringify({ ...king.plan, rules: king.plan.rules.map((r) => ({ ...r, price_per_hour_cents: 9900 })) })]), "a");
+const planAfter = (await sys(`select rate_plan_id from parking_session where user_id = $1 and status = 'active'`, [alice]))[0].rate_plan_id;
+check("price change does not touch a running session", planAfter === planBefore && kingSaved.plan.id !== planBefore && kingSaved.plan.rules[0].price_per_hour_cents === 9900, JSON.stringify([planBefore, kingSaved.plan.id]));
+eq("old tariff kept for the parked car", (await sys(`select count(*)::int c from rate_rule where rate_plan_id = $1 and price_per_hour_cents <> 9900`, [planBefore]))[0].c > 0, true);
+const series = val(await as(omar, `select operator_report_series() as r`), "r");
+check("report series by day and hour", series.by_day.length >= 1 && series.by_hour.length >= 1, JSON.stringify(series));
+const found = val(await as(omar, `select operator_sessions(now() - interval '1 day', now() + interval '1 hour', 'abc 123') as s`), "s");
+check("session search by plate", found.length >= 1 && found.every((x) => x.plate === "ABC123"), JSON.stringify(found.length));
+check("driver cannot refund", /forbidden/.test((await as(alice, `select operator_refund_session($1, 1, 'test refund')`, [s1.id])).error ?? ""));
+if (expected > 0) {
+  eq("partial refund recorded", val(await as(omar, `select operator_refund_session($1, 1, 'Meter fault') as r`, [s1.id]), "r").refunded_cents, 1);
+  check("cannot refund more than was paid", /invalid_amount/.test((await as(omar, `select operator_refund_session($1, 999999, 'too much')`, [s1.id])).error ?? ""));
+}
+check("refund needs a reason", /reason_required|invalid_amount|nothing_to_refund/.test((await as(omar, `select operator_refund_session($1, 1, '')`, [s1.id])).error ?? ""));
+const tickets = val(await as(alice, `select my_citations() as c`), "c");
+check("driver sees own ticket", tickets.length === 1 && tickets[0].status === "issued", JSON.stringify(tickets));
+check("another driver cannot pay it", /citation_not_found/.test((await as(bob, `select pay_citation($1)`, [tickets[0].id])).error ?? ""));
+eq("driver pays the ticket (simulated)", val(await as(alice, `select pay_citation($1) as r`, [tickets[0].id]), "r").status, "paid");
+check("cannot pay twice", /citation_not_payable/.test((await as(alice, `select pay_citation($1)`, [tickets[0].id])).error ?? ""));
+check("paid ticket cannot be voided", /citation_already_paid/.test((await as(omar, `select operator_void_citation($1, 'mistake')`, [tickets[0].id])).error ?? ""));
+check("operator sees citations", val(await as(omar, `select operator_citations() as c`), "c").length >= 1);
+check("operator sees own audit trail", val(await as(omar, `select operator_audit_log(50) as l`), "l").some((l) => l.action === "refund" || l.action === "publish"));
+check("operator admin is not a platform admin", /forbidden/.test((await as(omar, `select admin_operators()`)).error ?? ""));
+const paula = await signUp("paula@test.dev", "Paula");
+await sys(`select dev_set_role('paula@test.dev','platform_admin',null)`);
+check("platform admin lists operators", val(await as(paula, `select admin_operators() as o`), "o").length >= 1);
+const newOp = val(await as(paula, `select admin_save_operator(null, 'Test Operator', 'CA', 'America/Toronto', 'CAD', 500) as id`), "id");
+check("platform admin creates an operator", /^[0-9a-f-]{36}$/.test(newOp ?? ""), String(newOp));
+check("service fee is capped", /invalid_fee/.test((await as(paula, `select admin_save_operator(null, 'Greedy', 'CA', 'America/Toronto', 'CAD', 9000)`)).error ?? ""));
+await as(paula, `select admin_set_operator_admin('bob@test.dev', $1)`, [newOp]);
+eq("platform admin appoints an operator admin", (await sys(`select role from app_user where email = 'bob@test.dev'`))[0].role, "operator_admin");
+
+// ---- 7c. vehicle details and planned time (phase 1) ----------------------------------------
+console.log('\nvehicle details and planned time');
+const dana = await signUp('dana@test.dev', 'Dana');
+const danaAcc = (await sys(`select id from account where owner_user_id = $1`, [dana]))[0].id;
+const danaVeh = (await as(dana, `insert into vehicle (account_id, plate, make, model, colour, size_class) values ($1, 'dana 77', 'Toyota', 'Corolla', 'Blue', 'compact') returning id, plate, make, size_class`, [danaAcc])).rows?.[0];
+check('driver saves vehicle details at sign-up', danaVeh?.plate === 'DANA77' && danaVeh.make === 'Toyota' && danaVeh.size_class === 'compact', JSON.stringify(danaVeh));
+check('unknown size class rejected', !!(await as(dana, `insert into vehicle (account_id, plate, size_class) values ($1, 'DANA78', 'huge')`, [danaAcc])).error);
+const planned = val(await as(dana, `select start_session($1, $2, $3, null, null, 'd1', 99999) as s`, [danaVeh.id, CITY.lat, CITY.lng]), 's');
+check('planned time is stored and clamped to the max stay', planned?.planned_minutes === planned?.max_stay_minutes && planned.planned_minutes > 0, JSON.stringify(planned));
+await as(dana, `select end_session($1)`, [planned.id]);
+const open = val(await as(dana, `select start_session($1, $2, $3, null, null, 'd2') as s`, [danaVeh.id, CITY.lat, CITY.lng]), 's');
+check('planned time is optional', open?.status === 'active' && open.planned_minutes == null, JSON.stringify(open));
+await as(dana, `select end_session($1)`, [open.id]);
+
 // ---- 8. account deletion -----------------------------------------------------------------
 console.log('\naccount deletion');
 const carol = await signUp('carol@test.dev', 'Carol');

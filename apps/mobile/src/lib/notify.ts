@@ -75,6 +75,8 @@ export async function scheduleSessionReminders(sessionId: string, areaName: stri
     } else if (!plannedMinutes) {
       await add(4 * 3600, 'Still parked?', `Your session in ${areaName} has been running for 4 hours.`);
     }
+    // Forgot to end: a late nudge for any session that is still open after 12 hours.
+    if (!maxStayMinutes || maxStayMinutes > 12 * 60) await add(12 * 3600, 'Did you forget to end parking?', `Your session in ${areaName} has been open for 12 hours and is still charging.`);
     await AsyncStorage.setItem(idsKey(sessionId), JSON.stringify(ids));
   } catch {
     /* ignore */

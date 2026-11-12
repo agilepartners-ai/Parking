@@ -271,10 +271,22 @@ export const demoApi: Api = {
     if (!i.fineCents || i.fineCents <= 0 || i.fineCents > 50000) throw new ApiError('invalid_fine');
     if (!i.reason || i.reason.trim().length < 3) throw new ApiError('reason_required');
     const area = i.lat != null && i.lng != null ? findArea(DEMO_AREAS, i.lat, i.lng) : null;
-    const c: Citation = { id: uid(), plate, area_name: area?.name ?? null, reason: i.reason.trim(), fine_cents: i.fineCents, currency: 'CAD', issued_at: new Date().toISOString() };
+    const c: Citation = { status: 'issued', id: uid(), plate, area_name: area?.name ?? null, reason: i.reason.trim(), fine_cents: i.fineCents, currency: 'CAD', issued_at: new Date().toISOString() };
     s.citations.unshift(c);
     await save();
     return c;
+  },
+  async myCitations() {
+    const s = await load();
+    const mine = new Set(s.vehicles.map((v) => v.plate));
+    return s.citations.filter((c) => mine.has(c.plate) && c.status !== 'void');
+  },
+  async payCitation(id: string) {
+    const s = await load();
+    const c = s.citations.find((x) => x.id === id);
+    if (!c) throw new ApiError('citation_not_found');
+    c.status = 'paid';
+    await save();
   },
   async officerCitations() {
     const s = await load();

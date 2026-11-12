@@ -102,6 +102,8 @@ export interface Citation {
   fine_cents: number;
   currency: string;
   issued_at: string;
+  /** issued | paid | appealed | void (present on the driver and operator lists) */
+  status?: string;
 }
 
 export interface PlateCheck {

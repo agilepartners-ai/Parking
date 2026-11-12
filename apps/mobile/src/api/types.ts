@@ -57,6 +57,10 @@ export interface Api {
   sessions(): Promise<ParkingSession[]>;
   ping(sessionId: string, lat: number, lng: number, accuracy?: number | null, speed?: number | null): Promise<void>;
 
+  // tickets issued against my plates
+  myCitations(): Promise<Citation[]>;
+  payCitation(id: string): Promise<void>;
+
   // officer
   officerCheck(plate: string, lat?: number | null, lng?: number | null): Promise<PlateCheck>;
   officerNearby(lat: number, lng: number, radius: number): Promise<NearbyVehicle[]>;

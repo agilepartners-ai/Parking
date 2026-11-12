@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatMoney, formatDays, type AreaGeometry, type ParkingArea, type RateRule } from '@parkpay/shared';
+import { Audit, Charts, Citations, Platform, Sessions, Versions } from './Admin';
 import MapEditor from './MapEditor';
 import { configured, rpc, supabase } from './supabase';
 
@@ -14,10 +15,13 @@ type OperatorArea = ParkingArea & { active: boolean };
 const CUR = 'CAD';
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
+type Tab = 'dashboard' | 'areas' | 'sessions' | 'tickets' | 'staff' | 'audit' | 'platform';
+const TAB_NAMES: Record<Tab, string> = { dashboard: 'Dashboard', areas: 'Areas & rates', sessions: 'Sessions', tickets: 'Tickets', staff: 'Staff', audit: 'Audit log', platform: 'Platform' };
+
 export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [booting, setBooting] = useState(true);
-  const [tab, setTab] = useState<'dashboard' | 'areas' | 'staff'>('dashboard');
+  const [tab, setTab] = useState<Tab>('dashboard');
 
   const load = useCallback(async () => {
     const { data } = await supabase.auth.getSession();
@@ -42,17 +46,17 @@ export default function App() {
   return (
     <>
       <header className="top">
-        <h1>ParkPay · Operator</h1>
+        <h1>ParkPay <span className="muted" style={{ fontWeight: 500 }}>{profile.role === 'platform_admin' ? 'Platform admin' : 'Operator'}</span></h1>
         <nav>
-          {(['dashboard', 'areas', 'staff'] as const).map((t) => (
-            <button key={t} className={tab === t ? 'on' : ''} onClick={() => setTab(t)}>{t === 'dashboard' ? 'Dashboard' : t === 'areas' ? 'Areas & rates' : 'Staff'}</button>
+          {(Object.keys(TAB_NAMES) as Tab[]).filter((t) => t !== 'platform' || profile.role === 'platform_admin').map((t) => (
+            <button key={t} className={tab === t ? 'on' : ''} aria-current={tab === t ? 'page' : undefined} onClick={() => setTab(t)}>{TAB_NAMES[t]}</button>
           ))}
         </nav>
         <span className="muted">{profile.email}</span>
         <button className="btn secondary" onClick={async () => { await supabase.auth.signOut(); setProfile(null); }}>Sign out</button>
       </header>
       <main>
-        {tab === 'dashboard' ? <Dashboard /> : tab === 'areas' ? <Areas /> : <Staff />}
+        {tab === 'dashboard' ? <Dashboard /> : tab === 'areas' ? <Areas /> : tab === 'sessions' ? <Sessions /> : tab === 'tickets' ? <Citations /> : tab === 'audit' ? <Audit /> : tab === 'platform' ? <Platform /> : <Staff />}
       </main>
     </>
   );
@@ -115,6 +119,7 @@ function Dashboard() {
             <div className="card"><h3>Parked right now</h3><div className="big">{report.active_now}</div><div className="muted">active sessions</div></div>
             <div className="card"><h3>Citations</h3><div className="big">{report.citations}</div><div className="muted">{formatMoney(report.citation_cents, CUR)} in fines</div></div>
           </div>
+          <Charts days={days} currency={CUR} />
           <div className="split" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div className="card">
               <h3>Revenue by area</h3>
@@ -143,7 +148,7 @@ interface Draft {
 }
 
 const blankDraft = (): Draft => ({
-  id: null, name: '', level: 3, maxStay: '', active: true, planName: '', minCents: '1.00', dailyMax: '', grace: '5',
+  id: null, name: '', level: 3, maxStay: '', active: false, planName: '', minCents: '1.00', dailyMax: '', grace: '5',
   rules: [{ days: [1, 2, 3, 4, 5, 6, 7], start: '08:00', end: '24:00', price: '3.00', priority: '0' }], geometry: null,
 });
 
@@ -165,6 +170,17 @@ function Areas() {
   const [error, setError] = useState('');
   const [msg, setMsg] = useState('');
   const [saving, setSaving] = useState(false);
+  const [stamp, setStamp] = useState(0);
+
+  async function publish(on: boolean) {
+    if (!draft?.id) return;
+    setSaving(true); setError(''); setMsg('');
+    try {
+      const a = await rpc<OperatorArea>('operator_publish_area', { p_area_id: draft.id, p_publish: on });
+      await load(); setDraft((d) => (d ? { ...d, active: a.active } : d)); setStamp((n) => n + 1);
+      setMsg(on ? 'Published. Every driver app shows this area the next time it loads areas (within seconds).' : 'Unpublished. Drivers no longer see it; running sessions are not affected.');
+    } catch (e) { setError((e as Error).message.includes('no_rate_plan') ? 'Add at least one hourly rate and save before publishing.' : (e as Error).message); } finally { setSaving(false); }
+  }
 
   const load = useCallback(async () => { try { setAreas(await rpc<OperatorArea[]>('operator_areas')); } catch (e) { setError((e as Error).message); } }, []);
   useEffect(() => { void load(); }, [load]);
@@ -189,7 +205,8 @@ function Areas() {
       });
       await load();
       setDraft(toDraft(saved));
-      setMsg('Saved. Drivers see the change immediately.');
+      setStamp((n) => n + 1);
+      setMsg(saved.active ? 'Saved. It is published, so drivers see the change right away. Cars already parked keep the old price until they leave.' : 'Saved as a draft. Drivers cannot see it until you publish.');
     } catch (e) { setError((e as Error).message); } finally { setSaving(false); }
   }
 
@@ -207,11 +224,11 @@ function Areas() {
           {!draft ? (
             <div className="card list">
               <h3>Areas ({areas.length})</h3>
-              {areas.map((a) => <button key={a.id} onClick={() => setDraft(toDraft(a))}><b>{a.name}</b> <span className="muted">· level {a.level}{a.active ? '' : ' · inactive'}</span></button>)}
+              {areas.map((a) => <button key={a.id} onClick={() => setDraft(toDraft(a))}><b>{a.name}</b> <span className="muted">· {a.level === 3 ? 'area' : 'zone'}</span> <span className={`pill ${a.active ? '' : 'grey'}`} style={{ float: 'right' }}>{a.active ? 'Published' : 'Draft'}</span></button>)}
             </div>
           ) : (
             <div className="card grid">
-              <h3>{draft.id ? 'Edit area' : 'New area'}</h3>
+              <h3>{draft.id ? 'Edit area' : 'New area'} <span className={`pill ${draft.active ? '' : 'grey'}`} style={{ float: 'right', textTransform: 'none', letterSpacing: 0 }}>{draft.active ? 'Published' : 'Draft'}</span></h3>
               <div><label>Name</label><input value={draft.name} onChange={(e) => set('name', e.target.value)} placeholder="King St W zone" /></div>
               <div className="row">
                 <div><label>Type</label><select value={draft.level} onChange={(e) => set('level', Number(e.target.value) as 2 | 3)}><option value={3}>Parking area (lot / street)</option><option value={2}>City zone (fallback)</option></select></div>
@@ -235,14 +252,16 @@ function Areas() {
                 </div>
               ))}
               <button type="button" className="btn secondary" onClick={() => set('rules', [...draft.rules, { days: [1, 2, 3, 4, 5], start: '08:00', end: '18:00', price: '3.00', priority: '0' }])}>+ Add rate line</button>
-              <label style={{ display: 'flex', gap: 8, alignItems: 'center', textTransform: 'none', fontSize: 14 }}><input type="checkbox" style={{ width: 'auto' }} checked={draft.active} onChange={(e) => set('active', e.target.checked)} /> Active (visible to drivers)</label>
+              <p className="muted" style={{ margin: 0, fontSize: 13 }}>{draft.active ? 'This area is live: every driver app can see and use it.' : 'Draft: only your staff can see it. Save, check it on the map, then publish.'}</p>
               {!draft.geometry ? <div className="error">Draw the area on the map first.</div> : null}
               {error ? <div className="error">{error}</div> : null}
               {msg ? <div className="ok">{msg}</div> : null}
               <div className="row">
-                <button className="btn" disabled={saving || !draft.geometry || draft.name.trim().length < 2} onClick={save}>{saving ? 'Saving…' : 'Save area'}</button>
+                <button className={draft.active || !draft.id ? 'btn' : 'btn secondary'} disabled={saving || !draft.geometry || draft.name.trim().length < 2} onClick={save}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Save draft'}</button>
+                {draft.id ? <button className={draft.active ? 'btn danger' : 'btn'} disabled={saving} onClick={() => publish(!draft.active)}>{draft.active ? 'Unpublish' : 'Publish'}</button> : null}
                 <button className="btn secondary" onClick={() => { setDraft(null); setError(''); setMsg(''); }}>Close</button>
               </div>
+              {draft.id ? <Versions areaId={draft.id} stamp={stamp} /> : null}
             </div>
           )}
           {!draft ? <button className="btn secondary" onClick={() => setDraft(blankDraft())}>+ New area (then draw it)</button> : null}

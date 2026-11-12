@@ -1,3 +1,4 @@
+import * as Application from 'expo-application';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
 import React, { useEffect, useRef } from 'react';
 import { Platform } from 'react-native';
@@ -17,10 +18,20 @@ const toCoords = (ring: Position[]) => ring.map(([lng, lat]) => ({ latitude: lat
 
 // Android standalone builds crash if the Google Maps SDK has no API key, so show a list instead.
 // (Expo Go ships its own key; iOS uses Apple Maps and needs none.)
+// The key is baked into the native app from version 0.2.0 on. Older installs can still receive this
+// JavaScript, so the installed app version is checked as well as the config flag.
+function nativeHasMapsKey(): boolean {
+  try {
+    const [maj = 0, min = 0] = (Application.nativeApplicationVersion ?? '0.0.0').split('.').map(Number);
+    return maj > 0 || min >= 2;
+  } catch {
+    return false;
+  }
+}
 const mapsAvailable =
   Platform.OS !== 'android' ||
   Constants.executionEnvironment === ExecutionEnvironment.StoreClient ||
-  !!(Constants.expoConfig?.extra as { hasMapsKey?: boolean } | undefined)?.hasMapsKey;
+  (!!(Constants.expoConfig?.extra as { hasMapsKey?: boolean } | undefined)?.hasMapsKey && nativeHasMapsKey());
 
 export const hasRealMap = mapsAvailable;
 

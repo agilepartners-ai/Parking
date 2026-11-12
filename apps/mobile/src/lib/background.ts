@@ -29,11 +29,14 @@ if (backgroundSupported) {
       if (!raw) return;
       const info = JSON.parse(raw) as { areaName: string; geometry: AreaGeometry };
       const inside = pointInGeometry(last.coords.latitude, last.coords.longitude, info.geometry);
-      if (inside || (last.coords.speed ?? 0) < 2) return; // still there, or not moving
+      const speed = last.coords.speed ?? 0;
+      const fast = speed >= 25 / 3.6; // 25 km/h: driving, not walking around the lot
+      if (!fast && (inside || speed < 2)) return; // still there, or not moving
       const lastAt = Number((await AsyncStorage.getItem(LAST_KEY)) ?? 0);
       if (Date.now() - lastAt < 10 * 60_000) return; // at most one nudge per 10 minutes
       await AsyncStorage.setItem(LAST_KEY, String(Date.now()));
-      await notifyNow('Did you leave?', `You are moving away from ${info.areaName}. Open ParkPay to end your parking session.`);
+      if (fast) await notifyNow('Driving with parking still running', `You are moving fast but your session in ${info.areaName} is still open. Open ParkPay to end it.`);
+      else await notifyNow('Did you leave?', `You are moving away from ${info.areaName}. Open ParkPay to end your parking session.`);
     });
   } catch {
     /* defineTask can only run once; ignore hot-reload duplicates */
