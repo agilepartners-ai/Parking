@@ -162,6 +162,20 @@ function toDraft(a: OperatorArea): Draft {
   };
 }
 
+interface AreaCheck { area_m2: number; valid: boolean; problems: string[]; overlaps: { name: string; same_operator: boolean; published: boolean; overlap_m2: number }[] }
+const AREA_ERRORS: Record<string, string> = {
+  area_too_small: 'This shape is smaller than one parking bay (10 m²). Draw it larger.',
+  area_too_large: 'This shape is too large for a parking area (over 5 km²). Use a city zone for wide coverage.',
+  area_too_complex: 'This shape has too many points. Simplify it.',
+  area_overlaps_other_operator: 'This shape overlaps a published area of another operator, so it cannot be published. Move its edge.',
+  invalid_geometry: 'This shape is not valid. Draw it again.',
+  self_intersecting: 'The outline crosses itself. It will be repaired when saved; check the result on the map.',
+  area_not_found: 'That area belongs to another operator.',
+  operator_required: 'Your account is not linked to an operator. A platform admin edits an existing area, or assigns you to an operator first.',
+};
+const areaError = (e: unknown) => { const m = (e as Error).message; const k = Object.keys(AREA_ERRORS).find((x) => m.includes(x)); return k ? AREA_ERRORS[k] : m.includes('no_rate_plan') ? 'Add at least one hourly rate and save before publishing.' : m; };
+const fmtArea = (m2: number) => (m2 >= 1e6 ? `${(m2 / 1e6).toFixed(2)} km²` : m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${Math.round(m2).toLocaleString()} m²`);
+
 const cents = (s: string) => Math.round(parseFloat(s || '0') * 100);
 
 function Areas() {
@@ -171,6 +185,18 @@ function Areas() {
   const [msg, setMsg] = useState('');
   const [saving, setSaving] = useState(false);
   const [stamp, setStamp] = useState(0);
+  const [check, setCheck] = useState<AreaCheck | null>(null);
+
+  // Ask the server about the shape while it is being drawn: size, limits and overlaps with other areas.
+  const draftGeo = draft?.geometry ?? null; const draftId = draft?.id ?? null; const draftLevel = draft?.level ?? 3;
+  useEffect(() => {
+    if (!draftGeo) { setCheck(null); return; }
+    let stale = false;
+    const id = setTimeout(() => {
+      rpc<AreaCheck>('operator_check_area', { p_area_id: draftId, p_level: draftLevel, p_geojson: draftGeo }).then((c) => { if (!stale) setCheck(c); }).catch(() => { if (!stale) setCheck(null); });
+    }, 300);
+    return () => { stale = true; clearTimeout(id); };
+  }, [draftGeo, draftId, draftLevel]);
 
   async function publish(on: boolean) {
     if (!draft?.id) return;
@@ -179,7 +205,7 @@ function Areas() {
       const a = await rpc<OperatorArea>('operator_publish_area', { p_area_id: draft.id, p_publish: on });
       await load(); setDraft((d) => (d ? { ...d, active: a.active } : d)); setStamp((n) => n + 1);
       setMsg(on ? 'Published. Every driver app shows this area the next time it loads areas (within seconds).' : 'Unpublished. Drivers no longer see it; running sessions are not affected.');
-    } catch (e) { setError((e as Error).message.includes('no_rate_plan') ? 'Add at least one hourly rate and save before publishing.' : (e as Error).message); } finally { setSaving(false); }
+    } catch (e) { setError(areaError(e)); } finally { setSaving(false); }
   }
 
   const load = useCallback(async () => { try { setAreas(await rpc<OperatorArea[]>('operator_areas')); } catch (e) { setError((e as Error).message); } }, []);
@@ -188,9 +214,11 @@ function Areas() {
   const selected = draft?.id ?? null;
   const shownAreas = useMemo(() => areas.map((a) => (a.id === draft?.id && draft.geometry ? { ...a, geometry: draft.geometry } : a)), [areas, draft?.id, draft?.geometry]);
 
-  function onGeometry(g: AreaGeometry) {
-    setMsg('');
-    setDraft((d) => (d ? { ...d, geometry: g } : { ...blankDraft(), geometry: g }));
+  function onGeometry(g: AreaGeometry, isNew: boolean) {
+    setMsg(''); setError('');
+    // A fresh drawing never replaces the outline of the area that happens to be open: it starts a new draft
+    // (or reshapes a draft that has not been saved yet). Only dragging corners edits the open area.
+    setDraft((d) => (d && (!isNew || !d.id) ? { ...d, geometry: g } : { ...blankDraft(), geometry: g }));
   }
 
   async function save() {
@@ -207,7 +235,7 @@ function Areas() {
       setDraft(toDraft(saved));
       setStamp((n) => n + 1);
       setMsg(saved.active ? 'Saved. It is published, so drivers see the change right away. Cars already parked keep the old price until they leave.' : 'Saved as a draft. Drivers cannot see it until you publish.');
-    } catch (e) { setError((e as Error).message); } finally { setSaving(false); }
+    } catch (e) { setError(areaError(e)); } finally { setSaving(false); }
   }
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => (d ? { ...d, [k]: v } : d));
@@ -254,10 +282,18 @@ function Areas() {
               <button type="button" className="btn secondary" onClick={() => set('rules', [...draft.rules, { days: [1, 2, 3, 4, 5], start: '08:00', end: '18:00', price: '3.00', priority: '0' }])}>+ Add rate line</button>
               <p className="muted" style={{ margin: 0, fontSize: 13 }}>{draft.active ? 'This area is live: every driver app can see and use it.' : 'Draft: only your staff can see it. Save, check it on the map, then publish.'}</p>
               {!draft.geometry ? <div className="error">Draw the area on the map first.</div> : null}
+              {check ? (
+                <div className="geo" aria-live="polite">
+                  <div><b>Size:</b> {fmtArea(check.area_m2)}</div>
+                  {check.problems.map((p) => <div key={p} className={p === 'self_intersecting' ? 'warn' : 'error'}>{AREA_ERRORS[p] ?? p}</div>)}
+                  {check.overlaps.filter((o) => o.same_operator).map((o) => <div key={o.name} className="warn">Overlaps your area “{o.name}” by {fmtArea(o.overlap_m2)}. Where two areas overlap, drivers are charged the rate of the smaller one.</div>)}
+                  {check.valid && !check.problems.length && !check.overlaps.length ? <div className="ok">No overlap with other areas.</div> : null}
+                </div>
+              ) : null}
               {error ? <div className="error">{error}</div> : null}
               {msg ? <div className="ok">{msg}</div> : null}
               <div className="row">
-                <button className={draft.active || !draft.id ? 'btn' : 'btn secondary'} disabled={saving || !draft.geometry || draft.name.trim().length < 2} onClick={save}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Save draft'}</button>
+                <button className={draft.active || !draft.id ? 'btn' : 'btn secondary'} disabled={saving || !draft.geometry || draft.name.trim().length < 2 || (check != null && !check.valid && (draft.active || check.problems.some((p) => p !== 'area_overlaps_other_operator')))} onClick={save}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Save draft'}</button>
                 {draft.id ? <button className={draft.active ? 'btn danger' : 'btn'} disabled={saving} onClick={() => publish(!draft.active)}>{draft.active ? 'Unpublish' : 'Publish'}</button> : null}
                 <button className="btn secondary" onClick={() => { setDraft(null); setError(''); setMsg(''); }}>Close</button>
               </div>

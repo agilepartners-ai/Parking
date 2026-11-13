@@ -51,7 +51,7 @@ export default function HistoryScreen() {
     }
   }
 
-  const done = (items ?? []).filter((s) => s.status === 'completed');
+  const done = (items ?? []).filter((s) => s.status === 'completed' || s.status === 'expired');
   const total = done.reduce((n, s) => n + (s.fee_cents ?? 0), 0);
 
   return (
@@ -84,17 +84,18 @@ export default function HistoryScreen() {
       {items && items.length === 0 && !error && tickets.length === 0 ? <Empty icon="receipt-outline" title="No parking yet" hint="Your finished sessions and receipts will show up here." action={<Button size="sm" title="Start parking" onPress={() => router.navigate('/')} />} /> : null}
       {(items ?? []).map((s, i) => (
         <Enter key={s.id} i={i}>
-        <Pressable accessibilityRole="button" onPress={() => (s.status === 'completed' ? router.push({ pathname: '/receipt/[id]', params: { id: s.id } }) : router.navigate('/'))}>
+        <Pressable accessibilityRole="button" onPress={() => (s.status !== 'active' ? router.push({ pathname: '/receipt/[id]', params: { id: s.id } }) : router.navigate('/'))}>
           <Card style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-            <IconBadge name={s.status === 'completed' ? 'checkmark-done' : 'time'} tone={s.status === 'completed' ? 'brand' : 'info'} />
+            <IconBadge name={s.status === 'completed' ? 'checkmark-done' : s.status === 'expired' ? 'alarm' : 'time'} tone={s.status === 'completed' ? 'brand' : s.status === 'expired' ? 'warn' : 'info'} />
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={[ty.body, { color: t.text, fontWeight: '700' }]} numberOfLines={1}>{s.area_name}</Text>
               <Text style={[ty.small, { color: t.muted }]} numberOfLines={1}>
                 {new Date(s.started_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · {s.plate}
                 {s.duration_minutes ? ` · ${formatDuration(s.duration_minutes)}` : ''}
+                {s.status === 'expired' ? ' · closed at the time limit' : ''}
               </Text>
             </View>
-            {s.status === 'completed' ? (
+            {s.status !== 'active' ? (
               <Text style={{ color: t.text, fontSize: 17, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{formatMoney(s.fee_cents ?? 0, s.currency)}</Text>
             ) : (
               <Pill text="Active" />

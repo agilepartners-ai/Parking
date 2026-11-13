@@ -319,16 +319,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     refreshSession().catch(() => undefined);
   }, [user?.id, api]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Newly published or unpublished areas reach an open app within a minute, without the driver doing anything.
+  useEffect(() => {
+    if (!user) return;
+    const id = setInterval(() => {
+      if (RNAppState.currentState === 'active') void refreshAreas();
+    }, 60_000);
+    return () => clearInterval(id);
+  }, [user, refreshAreas]);
+
   // refresh the profile when the app comes back to the foreground (role may have changed server-side)
   useEffect(() => {
     const s = RNAppState.addEventListener('change', (st) => {
       if (st === 'active' && user) {
         refreshUser().catch(() => undefined);
         refreshSession().catch(() => undefined);
+        void refreshAreas();
       }
     });
     return () => s.remove();
-  }, [user, refreshUser, refreshSession]);
+  }, [user, refreshUser, refreshSession, refreshAreas]);
 
   // areas around the current fix (refetch when we moved > 1 km)
   useEffect(() => {

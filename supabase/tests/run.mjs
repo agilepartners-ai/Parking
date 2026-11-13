@@ -269,6 +269,101 @@ const open = val(await as(dana, `select start_session($1, $2, $3, null, null, 'd
 check('planned time is optional', open?.status === 'active' && open.planned_minutes == null, JSON.stringify(open));
 await as(dana, `select end_session($1)`, [open.id]);
 
+// ---- 7d. geofencing: matching rules, admin guard, phone/server parity ----------------------
+console.log('\ngeofencing');
+const { pointInGeometry, findArea } = await import('../../packages/shared/src/geo.ts');
+const box = (w, s, e, n) => [[w, s], [e, s], [e, n], [w, n], [w, s]];
+const gj = (rings) => JSON.stringify({ type: 'Polygon', coordinates: rings });
+const save = (who, id, name, geo, active = true, maxStay = null, level = 3) =>
+  as(who, `select operator_save_area($1, $2, $3, $4::jsonb, $5, $6, $7::jsonb) as a`, [id, name, level, geo, maxStay, active, JSON.stringify(plan)]);
+const detect = async (lat, lng) => val(await as(dana, `select detect_area($1,$2) as a`, [lat, lng]), 'a')?.name ?? null;
+
+const big = val(await save(omar, null, 'Geo Big Lot', gj([box(-79.452, 43.7, -79.449, 43.702)]), true, 60), 'a');
+const small = val(await save(omar, null, 'Geo Small Lot', gj([box(-79.4515, 43.7005, -79.451, 43.701)])), 'a');
+const donut = val(await save(omar, null, 'Geo Donut Lot', gj([box(-79.446, 43.7, -79.443, 43.702), box(-79.445, 43.7007, -79.444, 43.7013)])), 'a');
+check('operator saves three test lots', !!big?.id && !!small?.id && !!donut?.id, JSON.stringify([big?.name, small?.name, donut?.name]));
+eq('overlap: the smaller lot wins', await detect(43.70075, -79.45125), 'Geo Small Lot');
+eq('overlap: outside the small lot the big one matches', await detect(43.7015, -79.4495), 'Geo Big Lot');
+eq('a point on the edge counts as inside', await detect(43.7, -79.4505), 'Geo Big Lot');
+eq('a corner counts as inside', await detect(43.702, -79.449), 'Geo Big Lot');
+eq('ring of a lot with a hole matches', await detect(43.7003, -79.4445), 'Geo Donut Lot');
+check('the hole itself does not match the lot', (await detect(43.701, -79.4445)) !== 'Geo Donut Lot');
+check('1 m outside does not match', (await detect(43.70201, -79.4505)) !== 'Geo Big Lot');
+
+// draft, validity window, missing tariff: the list the phone shows and the server match must agree
+const draftLot = val(await save(omar, null, 'Geo Draft Lot', gj([box(-79.44, 43.7, -79.439, 43.701)]), false), 'a');
+check('a draft is not matched', (await detect(43.7005, -79.4395)) !== 'Geo Draft Lot');
+const names = async () => val(await as(dana, `select list_areas(43.701, -79.447, 3000) as a`), 'a').map((a) => a.name);
+check('a draft is not listed to drivers', !(await names()).includes('Geo Draft Lot') && (await names()).includes('Geo Big Lot'));
+await sys(`update parking_area set valid_to = now() - interval '1 hour' where id = $1`, [small.id]);
+eq('an area past its end date is skipped', await detect(43.70075, -79.45125), 'Geo Big Lot');
+check('and is not listed either', !(await names()).includes('Geo Small Lot'));
+await sys(`update parking_area set valid_to = null, valid_from = now() + interval '1 day' where id = $1`, [small.id]);
+eq('an area not yet started is skipped', await detect(43.70075, -79.45125), 'Geo Big Lot');
+await sys(`update parking_area set valid_from = null where id = $1`, [small.id]);
+await sys(`update rate_plan set active = false where area_id = $1`, [small.id]);
+eq('an area with no tariff falls through to the next one', await detect(43.70075, -79.45125), 'Geo Big Lot');
+check('and is not listed', !(await names()).includes('Geo Small Lot'));
+await sys(`update rate_plan set active = true where area_id = $1`, [small.id]);
+eq('restored', await detect(43.70075, -79.45125), 'Geo Small Lot');
+
+// admin guard
+check('lot smaller than a parking bay is rejected', /area_too_small/.test((await save(omar, null, 'Tiny', gj([box(-79.43, 43.7, -79.43001, 43.70001)]))).error ?? ''));
+check('lot larger than 5 km2 is rejected', /area_too_large/.test((await save(omar, null, 'Huge', gj([box(-79.6, 43.5, -79.4, 43.7)]))).error ?? ''));
+check('a zone of that size is allowed', !(await save(omar, null, 'Geo Wide Zone', gj([box(-79.6, 43.5, -79.4, 43.69)]), false, null, 2)).error);
+check('coordinates off the globe are rejected', !!(await save(omar, null, 'Off', gj([box(-190, 43.7, -189.999, 43.701)]))).error);
+check('self-crossing shape is repaired, not stored broken', !(await save(omar, null, 'Geo Bowtie', gj([[[-79.42, 43.7], [-79.419, 43.701], [-79.419, 43.7], [-79.42, 43.701], [-79.42, 43.7]]]), false)).error
+  && (await sys(`select st_isvalid(geom) v from parking_area where name = 'Geo Bowtie'`))[0].v === true);
+// bob is the admin of a different operator (appointed in 7b)
+check('another operator cannot publish a lot on top of yours', /area_overlaps_other_operator/.test((await save(bob, null, 'Poacher', gj([box(-79.4512, 43.7006, -79.4505, 43.7012)]))).error ?? ''));
+const poach = val(await save(bob, null, 'Poacher Draft', gj([box(-79.4512, 43.7006, -79.4505, 43.7012)]), false), 'a');
+check('they may keep it as a draft', poach?.active === false, JSON.stringify(poach));
+check('but publishing it is refused', /area_overlaps_other_operator/.test((await as(bob, `select operator_publish_area($1, true)`, [poach.id])).error ?? ''));
+check('a lot next door (no overlap) publishes fine', !(await save(bob, null, 'Neighbour Lot', gj([box(-79.448, 43.7, -79.447, 43.702)]))).error);
+check('an operator cannot edit another operator\'s area', /area_not_found/.test((await save(bob, big.id, 'Stolen', gj([box(-79.452, 43.7, -79.449, 43.702)]))).error ?? ''));
+check('nor publish or unpublish it', /area_not_found/.test((await as(bob, `select operator_publish_area($1, false)`, [big.id])).error ?? ''));
+const chkOwn = val(await as(omar, `select operator_check_area(null, 3, $1::jsonb) as c`, [gj([box(-79.4512, 43.7006, -79.4505, 43.7012)])]), 'c');
+check('pre-save check: own overlap is a warning, not an error', chkOwn.valid === true && chkOwn.overlaps.some((o) => o.name === 'Geo Big Lot' && o.same_operator) && chkOwn.area_m2 > 1000, JSON.stringify(chkOwn));
+const chkOtherRes = await as(bob, `select operator_check_area(null, 3, $1::jsonb) as c`, [gj([box(-79.4512, 43.7006, -79.4505, 43.7012)])]);
+const chkOther = val(chkOtherRes, 'c') ?? { problems: [] };
+check('pre-save check: overlap with another operator is an error', chkOther.valid === false && chkOther.problems.includes('area_overlaps_other_operator'), JSON.stringify(chkOther));
+check('driver cannot use the pre-save check', /forbidden/.test((await as(dana, `select operator_check_area(null, 3, $1::jsonb)`, [gj([box(-79.4512, 43.7006, -79.4505, 43.7012)])])).error ?? ''));
+
+// the phone's own point-in-polygon must agree with PostGIS
+const serverAreas = val(await as(omar, `select operator_areas() as a`), 'a').filter((a) => a.name.startsWith('Geo ') && a.level === 3);
+let mismatches = 0;
+let seed = 42;
+const rnd = () => ((seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648);
+const pts = Array.from({ length: 400 }, () => ({ lng: -79.4535 + rnd() * 0.0125, lat: 43.6995 + rnd() * 0.003 }));
+for (const a of serverAreas) {
+  const flags = (await sys(`select st_covers((select geom from parking_area where id = $1), st_setsrid(st_makepoint(p.lng, p.lat), 4326)) as inside from jsonb_to_recordset($2::jsonb) as p(lng double precision, lat double precision)`, [a.id, JSON.stringify(pts)])).map((r) => r.inside);
+  pts.forEach((p, i) => { if (pointInGeometry(p.lat, p.lng, a.geometry) !== flags[i]) mismatches++; });
+}
+eq(`phone and server agree on ${pts.length} random points x ${serverAreas.length} areas`, mismatches, 0);
+const visible = val(await as(dana, `select list_areas(43.701, -79.447, 3000) as a`), 'a');
+let pickMismatch = 0;
+for (const p of pts.slice(0, 60)) {
+  const server = await detect(p.lat, p.lng);
+  if ((findArea(visible, p.lat, p.lng)?.name ?? null) !== server) pickMismatch++;
+}
+eq('phone picks the same area as the server (60 points, overlaps included)', pickMismatch, 0);
+
+// sessions against the geofence
+check('very inaccurate position cannot start a session', /location_too_inaccurate/.test((await as(dana, `select start_session($1, 43.7015, -79.4495, 500, 0, 'g0')`, [danaVeh.id])).error ?? ''));
+const gs = val(await as(dana, `select start_session($1, 43.7015, -79.4495, 20, 0, 'g1') as s`, [danaVeh.id]), 's');
+eq('session starts in the matched lot', gs?.area_name, 'Geo Big Lot');
+await as(omar, `select operator_publish_area($1, false)`, [big.id]);
+check('unpublishing does not strand a parked driver', val(await as(dana, `select end_session($1) as s`, [gs.id]), 's')?.status === 'completed');
+await as(omar, `select operator_publish_area($1, true)`, [big.id]);
+const late = val(await as(dana, `select start_session($1, 43.7015, -79.4495, 20, 0, 'g2') as s`, [danaVeh.id]), 's');
+await sys(`update parking_session set started_at = now() - interval '5 hours' where id = $1`, [late.id]);
+check('overdue sessions are closed by the server', Number((await sys(`select expire_overdue_sessions() as n`))[0].n) >= 1);
+const closed = (await sys(`select status, duration_minutes, fee_cents, receipt_no, (ended_at - started_at) = interval '60 minutes' as at_limit, compute_fee_cents(rate_plan_id, started_at, ended_at) as want, compute_fee_cents(rate_plan_id, started_at, now()) as uncapped from parking_session where id = $1`, [late.id]))[0];
+check('closed at the maximum stay, charged for that time only', closed.status === 'expired' && closed.duration_minutes === 60 && closed.at_limit === true && closed.fee_cents === closed.want && closed.fee_cents < closed.uncapped && !!closed.receipt_no, JSON.stringify(closed));
+eq('driver has no active session afterwards', val(await as(dana, `select my_active_session() as s`), 's'), null);
+check('clients cannot run the clean-up job', !!(await as(dana, `select expire_overdue_sessions()`)).error);
+check('clients cannot call the internal matcher', !!(await as(dana, `select * from find_parking_area(43.7, -79.45)`)).error);
+
 // ---- 8. account deletion -----------------------------------------------------------------
 console.log('\naccount deletion');
 const carol = await signUp('carol@test.dev', 'Carol');

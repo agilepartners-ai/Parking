@@ -36,8 +36,8 @@ function Bars({ data, label }: { data: { key: string; value: number; tip: string
   const max = Math.max(1, ...data.map((d) => d.value));
   return (
     <div role="img" aria-label={label} className="bars">
-      {data.map((d) => (
-        <div key={d.key} className="bar" title={d.tip}>
+      {data.map((d, i) => (
+        <div key={i} className="bar" title={d.tip}>
           <div style={{ height: `${Math.max(2, Math.round((d.value / max) * 100))}%` }} />
           <span>{d.key}</span>
         </div>

@@ -54,3 +54,5 @@ header.top nav { flex-wrap: wrap; }
 .btn:active:not(:disabled) { transform: scale(0.97); }
 :focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
 td, .big { font-variant-numeric: tabular-nums; }
+.geo { display: grid; gap: 6px; font-size: 13px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
+.geo .warn { color: var(--warn); }

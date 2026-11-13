@@ -8,7 +8,8 @@ interface Props {
   selectedId: string | null;
   draftGeometry: AreaGeometry | null; // geometry of an area being drawn but not saved yet
   onSelect: (id: string) => void;
-  onGeometry: (g: AreaGeometry) => void; // new drawing or edited vertices
+  /** isNew = a fresh drawing (starts a new area); otherwise the selected area's corners were dragged. */
+  onGeometry: (g: AreaGeometry, isNew: boolean) => void;
 }
 
 const TORONTO: L.LatLngExpression = [43.6526, -79.3832];
@@ -47,7 +48,7 @@ export default function MapEditor({ areas, selectedId, draftGeometry, onSelect, 
     m.on('pm:create', (e: { layer: L.Layer }) => {
       const geo = (e.layer as L.Polygon).toGeoJSON().geometry as AreaGeometry;
       m.removeLayer(e.layer);
-      cb.current.onGeometry(geo);
+      cb.current.onGeometry(geo, true);
     });
     map.current = m;
     return () => {
@@ -86,7 +87,7 @@ export default function MapEditor({ areas, selectedId, draftGeometry, onSelect, 
               const gj = (x as L.Polygon).toGeoJSON().geometry as GeoJSON.Polygon;
               rings.push(gj.coordinates as number[][][]);
             });
-            cb.current.onGeometry({ type: 'MultiPolygon', coordinates: rings } as AreaGeometry);
+            cb.current.onGeometry({ type: 'MultiPolygon', coordinates: rings } as AreaGeometry, false);
           });
         });
       }
