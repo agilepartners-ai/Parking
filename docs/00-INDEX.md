@@ -5,6 +5,8 @@ last_updated: 2026-11-10
 
 # Index
 
+**Start here:** [MASTER-SPECIFICATION.md](MASTER-SPECIFICATION.md) is the single document that covers the 2012 material, the schema, the API, geofencing, testing and what is still missing.
+
 **New (2026-11-10):** [EXPLAINER-FOR-MANAGEMENT.md](EXPLAINER-FOR-MANAGEMENT.md) (plain-language overview for non-developers) and [SETUP-AND-TESTING.md](SETUP-AND-TESTING.md) (run, test, release). The prototype is built: see the repository README.
 
 | # | Document | Read it when |
