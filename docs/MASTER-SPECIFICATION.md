@@ -1,9 +1,9 @@
 ---
 title: ParkPay master specification
-version: 1.0 (2026-11-13)
+version: 1.1 (2026-11-14)
 covers: the 2012 prototype and patents, the rebuilt product as it exists in this repository, and what is still missing
 audience: the owner, any developer or agency taking over, a reviewer or investor
-status_of_this_document: describes commit 8ea746b and later. Every "built" claim was checked by a test named in section 13. Anything not checked is marked.
+status_of_this_document: describes commit a946e63 and later. Every "built" claim was checked by a test named in section 13. Anything not checked is marked.
 not_legal_advice: true
 ---
 # ParkPay master specification
@@ -29,6 +29,7 @@ not_legal_advice: true
 15. Gap register: what a real launch still needs
 16. Roadmap
 17. Glossary and file map
+18. Compliance audit: this specification checked against the code
 
 ---
 
@@ -41,7 +42,7 @@ A driver opens the app, the server works out which paid parking area the phone i
 | Driver app (Android, iOS from one codebase)              | Built                | Tested on an Android emulator. Not yet on a physical phone or an iPhone   |
 | Officer mode (inside the same app)                       | Built, basic         | Plate check, nearby valid vehicles, issue ticket                          |
 | Operator and platform-admin console (web)                | Built                | Clicked through in a browser against the live test project                |
-| Backend (database, rules, security)                      | Built                | 6 migrations applied, 148 automated checks pass                           |
+| Backend (database, rules, security) | Built | 7 migrations applied, 169 automated checks pass; the driver flow also passes 20 checks through the public API |
 | Geofencing rules and admin safeguards                    | Built and tested     | Section 7                                                                 |
 | Public website (privacy, terms, support, delete account) | Drafted              | Legal text not reviewed by a lawyer. Not deployed                         |
 | Payments                                                 | **Simulated**  | No money moves. Stripe not connected                                      |
@@ -226,7 +227,7 @@ erDiagram
 | `vehicle`                                                    | A plate. Stored normalised (upper case, letters and digits only)                              | `plate`, `plate_region`, `nickname`, `make`, `model`, `colour`, `size_class` (compact, standard, large), `is_default`, `archived_at`                                                                                                                                                      |
 | `payment_method`                                             | Provider tokens only, never card data. Unused until Stripe                                    | `provider_customer_id`, `provider_method_id`                                                                                                                                                                                                                                                            |
 | `operator`                                                   | A city authority or lot owner                                                                 | `name`, `country`, `timezone`, `currency`, `service_fee_bps`                                                                                                                                                                                                                                      |
-| `parking_area`                                               | A shape with a price                                                                          | `operator_id`, `level` (1 region, 2 city zone, 3 lot or street), `name`, `geom` (MultiPolygon, WGS84), `max_stay_minutes`, `active` (published), `valid_from`, `valid_to`                                                                                                                   |
+| `parking_area`                                               | A shape with a price                                                                          | `operator_id`, `level` (1 region, 2 city zone, 3 lot or street), `name`, `geom` (MultiPolygon, WGS84), `max_stay_minutes`, `closing_time` (operator-local), `active` (published), `valid_from`, `valid_to`, `archived_at` |
 | `parking_area_version`                                       | Snapshot on every save, publish and unpublish                                                 | `area_id`, `version`, `action`, `snapshot` (JSON), `actor_user_id`                                                                                                                                                                                                                                |
 | `rate_plan`                                                  | The tariff of an area                                                                         | `area_id`, `currency`, `min_charge_cents`, `daily_max_cents`, `grace_minutes`, `active`                                                                                                                                                                                                         |
 | `rate_rule`                                                  | One tariff line                                                                               | `days_of_week` (1 Mon to 7 Sun), `start_time`, `end_time`, `price_per_hour_cents`, `priority`                                                                                                                                                                                                     |
@@ -275,7 +276,8 @@ Clients call SQL functions through Supabase RPC (`POST /rest/v1/rpc/<name>` with
 | `detect_area(lat, lng)`                                                   | The one area this point is in, or null                                     |
 | `get_area(id)`                                                            | One area by id (the area a session was started in, even after moving away) |
 | `start_session(vehicle, lat, lng, accuracy, speed, key, planned_minutes)` | Matches the area, freezes the tariff, starts the clock                     |
-| `end_session(id, lat, lng)`                                               | Computes the fee, splits it, records the payment, issues a receipt number  |
+| `extend_session(id, planned_minutes)` | Changes the planned time of a running session (counted from its start; null = until I end it). Never below the time already used, never above the maximum stay |
+| `end_session(id, lat, lng)` | Computes the fee, splits it, records the payment, issues a receipt number  |
 | `my_active_session()`, `my_sessions(limit)`                             | Current session; history                                                   |
 | `session_ping(id, lat, lng, accuracy, speed)`                             | Breadcrumb while parked                                                    |
 | `my_citations()`, `pay_citation(id)`                                    | Tickets against my plates; pay one (simulated)                             |
@@ -299,7 +301,9 @@ Clients call SQL functions through Supabase RPC (`POST /rest/v1/rpc/<name>` with
 | `operator_check_area(area_id, level, geojson)`                         | Size, limit problems and overlaps for a shape that is not saved yet |
 | `operator_save_area(...)`                                              | Create or edit shape and tariff in one call; writes a version       |
 | `operator_publish_area(id, publish)`                                   | Publish or unpublish; writes a version                              |
-| `operator_area_versions(id)`                                           | History of an area                                                  |
+| `operator_set_area_hours(id, closing_time)` | Sets or clears the closing time |
+| `operator_archive_area(id)` | Removes an area from drivers and from the list for good; refused while a vehicle is parked there. History and receipts stay |
+| `operator_area_versions(id)` | History of an area |
 | `operator_report(from, to)`, `operator_report_series(from, to)`      | Totals; per day and per hour of day                                 |
 | `operator_active_sessions()`                                           | Who is parked now                                                   |
 | `operator_sessions(from, to, search, limit)`                           | Session list, search by plate or receipt, source of the CSV export  |
@@ -322,7 +326,7 @@ Clients call SQL functions through Supabase RPC (`POST /rest/v1/rpc/<name>` with
 
 ### 6.6 Error codes
 
-`not_authenticated`, `forbidden`, `vehicle_not_found`, `no_parking_area`, `no_rate_plan`, `invalid_location`, `location_too_inaccurate`, `session_already_active`, `session_not_active`, `session_not_found`, `end_active_session_first`, `invalid_geometry`, `area_too_small`, `area_too_large`, `area_too_complex`, `area_overlaps_other_operator`, `area_not_found`, `operator_required`, `invalid_amount`, `reason_required`, `nothing_to_refund`, `citation_not_found`, `citation_not_payable`, `citation_already_paid`, `invalid_fee`, `invalid_timezone`, `user_not_found`.
+`not_authenticated`, `forbidden`, `vehicle_not_found`, `no_parking_area`, `no_rate_plan`, `invalid_location`, `location_too_inaccurate`, `rate_limited`, `max_stay_reached`, `invalid_time`, `area_has_active_sessions`, `session_already_active`, `session_not_active`, `session_not_found`, `end_active_session_first`, `invalid_geometry`, `area_too_small`, `area_too_large`, `area_too_complex`, `area_overlaps_other_operator`, `area_not_found`, `operator_required`, `invalid_amount`, `reason_required`, `nothing_to_refund`, `citation_not_found`, `citation_not_payable`, `citation_already_paid`, `invalid_fee`, `invalid_timezone`, `user_not_found`.
 
 ---
 
@@ -395,6 +399,8 @@ stateDiagram-v2
   Draft --> Published: publish (needs a tariff, no cross-operator overlap)
   Published --> Published: edit shape or rates (new version)
   Published --> Draft: unpublish
+  Draft --> Archived: archive (no vehicle parked there)
+  Archived --> [*]
 ```
 
 | Admin action     | Effect on drivers                                                                                                                      |
@@ -402,6 +408,8 @@ stateDiagram-v2
 | Publish          | Open apps pick it up within 60 seconds (periodic refresh), and at once when the app is opened or pulled to refresh                     |
 | Unpublish        | No new sessions there. A session already running continues and can be ended and paid normally                                          |
 | Change rates     | New sessions use the new rates. A session already running keeps the rates it started with (the old tariff is retired, not overwritten) |
+| Archive | Gone from drivers and from the console list; cannot be published again. Sessions, receipts and versions are kept |
+| Set a closing time | Shown on the area card ("Closes at 23:00") and used for a reminder |
 | Change the shape | New matches use the new shape. A running session keeps its area; only the "did you leave?" reminder follows the new outline            |
 
 Every save, publish and unpublish stores a full snapshot in `parking_area_version` and a line in `audit_log`.
@@ -501,13 +509,16 @@ All are local notifications created by the app. None needs a server today.
 | Planned time almost up             | 10 minutes before the time the driver chose (half-way for stays of 20 minutes or less) | Notifications                    |
 | Planned time is up                 | At the chosen time                                                                     | Notifications                    |
 | Maximum stay soon / reached        | 15 minutes before, and at, the area's limit                                            | Notifications                    |
-| Still parked?                      | After 4 hours where there is no plan and no limit                                      | Notifications                    |
+| Area closes soon | 15 minutes before the area's closing time (5 if it closes sooner) | Notifications |
+| Still parked? | After 4 hours where there is no plan and no limit                                      | Notifications                    |
 | Forgot to end                      | After 12 hours                                                                         | Notifications                    |
 | Did you leave?                     | Position outside the area for two readings while moving                                | App open, or background location |
 | Driving with parking still running | Speed of 25 km/h or more for three readings with a session open (patent claim 1)       | App open, or background location |
 | You have arrived                   | Entering a registered circle (section 7.7)                                             | Background location              |
 
 Limits to state plainly: a phone that is off, in battery saver, or has notifications disabled will not remind. That is why the server also closes overdue sessions. Server push (ticket issued, payment failed, session closed for you) is not built.
+
+When the driver changes the planned time mid-session, all timed reminders are cancelled and scheduled again from the new plan.
 
 Permissions are asked once, each after an in-app explanation: location and notifications during sign-up, background location after the first session starts.
 
@@ -536,9 +547,9 @@ flowchart LR
 | Screen                   | What it does                                                                                                                                                  |
 | ------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Start-up                 | Three visible steps with time limits; can never hang                                                                                                          |
-| Sign in / Create account | Email and password; inline validation; demo mode switch                                                                                                       |
+| Sign in / Create account | Email and password; inline validation; "Forgot password?" emails a reset link; demo mode switch |
 | Sign-up steps            | Vehicle (plate, region, make, model, colour, size), then why location and reminders are needed. Shown once; also once to an older account that has no vehicle |
-| Park                     | Map (or a list where the map is unavailable), detected area and price, vehicle, wheel time picker, Start. While parked: timer, cost so far, time left, End    |
+| Park                     | Map (or a list where the map is unavailable), detected area and price, vehicle, wheel time picker, Start. While parked: timer, cost so far, time left, "Change my time" (same wheel, counted from now), closing time, End |
 | History                  | Sessions with receipts; tickets with Pay                                                                                                                      |
 | Vehicles                 | Add, remove, set default                                                                                                                                      |
 | Account                  | Name, sign out, delete account                                                                                                                                |
@@ -549,7 +560,7 @@ flowchart LR
 | Tab                            | What it does                                                                                                         |
 | ------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
 | Dashboard                      | Revenue, payout, parked now, tickets; revenue per day and sessions per hour charts; revenue by area; parked-now list |
-| Areas and rates                | Map editor, draft and publish, live size and overlap check, tariff lines, version history                            |
+| Areas and rates | Map editor, draft and publish, live size and overlap check, tariff lines, maximum stay, closing time, import a shape from a GeoJSON file, archive, version history |
 | Sessions                       | Search by plate or receipt, CSV export, refund                                                                       |
 | Tickets                        | List, void with a reason                                                                                             |
 | Staff                          | Make a user an officer or a driver                                                                                   |
@@ -558,7 +569,7 @@ flowchart LR
 
 ### 11.3 Public site
 
-Home (how it works, for operators), privacy policy, terms, support, delete my account. Both stores require a privacy policy and a public account-deletion page.
+Home (how it works, for operators), privacy policy, terms, support, delete my account, and the page where a driver sets a new password from the emailed link. Both stores require a privacy policy and a public account-deletion page.
 
 ---
 
@@ -570,7 +581,8 @@ Home (how it works, for operators), privacy policy, terms, support, delete my ac
 | Authorisation           | Row-level security on every table; a table with no policy is unreachable. Staff functions check the role and the operator                                |
 | Secrets                 | Phone and console carry the publishable key only. The secret key and database password are in a local `.env` that is not committed                     |
 | Injection               | No dynamic SQL from client input                                                                                                                         |
-| Replay and double taps  | Idempotency key on Start                                                                                                                                 |
+| Replay and double taps | Idempotency key on Start |
+| Runaway clients | At most 30 session starts per user per hour (`rate_limited`); sign-in attempts are limited by the auth service |
 | Tampered clock or price | Server time and server fee only                                                                                                                          |
 | Location data           | Collected at start, end and about once a minute while parked; breadcrumbs deleted after 30 days; arrival and leave checks run on the phone               |
 | Account deletion        | In the app and by email; profile anonymised, sign-in removed, financial records kept without the name                                                    |
@@ -586,7 +598,8 @@ Known weaknesses are listed in section 15 rather than hidden here.
 
 | Layer                 | Command                                                          | Result on 2026-11-13 |
 | --------------------- | ---------------------------------------------------------------- | -------------------- |
-| Database suite        | `node supabase/tests/run.mjs`                                  | 148 passed, 0 failed |
+| Database suite | `node supabase/tests/run.mjs` | 169 passed, 0 failed (2026-11-14) |
+| Live driver flow through the public API | `node scripts/live-smoke.mjs` | 20 passed, 0 failed |
 | Fee engine unit tests | `npm test`                                                     | 15 passed            |
 | Type checks           | `npx tsc --noEmit` in `apps/mobile` and `apps/ops-console` | Clean                |
 | Console build         | `npm run build` in `apps/ops-console`                        | Builds               |
@@ -603,14 +616,17 @@ The database suite runs the real functions as different users with row-level sec
 | Admin v2                         | Publish and unpublish, versions, running session keeps its tariff, report series, search, refund limits, tickets pay and void, audit, platform admin                                                                                                                                                                                                                                                                                                                                                                        |
 | Vehicle details and planned time | Saved, validated, clamped to the maximum stay, optional                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | **Geofencing (40 checks)** | Smaller of two overlapping lots wins; edge and corner count as inside; hole is outside; draft, expired, not-yet-valid and tariff-less areas are skipped and not listed; size limits; off-globe; self-crossing repaired; cross-operator overlap refused on save and on publish; own overlap is a warning; other operator cannot edit or publish; phone and server agree on 400 points; inaccurate fix refused; unpublish does not strand a parked driver; overdue session closed at the limit and charged for that time only |
-| Account deletion                 | Refused while parked; anonymised afterwards                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Extend, hours, archive, limits (21 checks) | Extend up, capped at the maximum, cleared, not by others, not into the past, not after the end; closing time set, shown to drivers, cleared, bad input refused; archive refused while parked, hides the area, blocks re-publishing, keeps history; 30 starts an hour trips the limit while a retry is still answered |
+| Account deletion | Refused while parked; anonymised afterwards |
 
 Manual checks done:
 
 | What                                                                                                                                     | Where                              | Result                                                                                     |
 | ---------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------ |
 | Sign-up steps, time picker, start, "drove away fast" notification, end, receipt                                                          | Android emulator, app in demo mode | Worked                                                                                     |
-| Console: sign in, dashboard and charts, area editor with live size and overlap, new drawing starts a draft, sessions, tickets, audit log | Browser, live test project         | Worked. One hazard found and fixed (a new drawing used to replace the open area's outline) |
+| Console: sign in, dashboard and charts, area editor with live size and overlap, new drawing starts a draft, sessions, tickets, audit log | Browser, live test project | Worked. One hazard found and fixed (a new drawing used to replace the open area's outline) |
+| Console: closing time (bad input refused, saved, versioned), GeoJSON import (bad file refused, good file opens a named draft with its size), archive hidden for published areas | Browser, live test project | Worked |
+| App: "Change my time" on a running session | Android emulator, demo mode | Worked. One cosmetic defect found and fixed (selected minute drawn faded) |
 
 **Not tested, stated plainly:**
 
@@ -618,7 +634,8 @@ Manual checks done:
 - Arrival and other background reminders (need a real phone with "Allow all the time").
 - Timed reminders firing at their time (they are scheduled; nobody waited).
 - The Google map on screen (needs a new build, version 0.2.0).
-- The app's live-server path through the user interface for the newest screens (covered by database checks, not by tapping).
+- The app's newest screens against the live server by tapping (the same calls are covered by the database suite and by `scripts/live-smoke.mjs`).
+- The password-reset email round trip (needs the site deployed and its address added to the auth service's allowed redirect list).
 - The platform tab in a browser (covered by database checks).
 - Load, penetration and accessibility testing.
 
@@ -656,17 +673,17 @@ These are the things a parking-payments product needs that were not in the origi
 | 8  | Refunds and ticket voids with reasons                                                   | Daily support work                                                     | **Built** (recorded; no money moves yet)                                     |
 | 9  | Account deletion in app and on the web                                                  | Store requirement                                                      | **Built** (page drafted)                                                     |
 | 10 | Real payments, card hold, payouts, failed-payment handling                              | The business                                                           | Not built. Needs a Stripe account                                                  |
-| 11 | Password reset, email verification screens                                              | Locked-out users                                                       | Not built. Needs a hosted page and the mail settings                               |
+| 11 | Password reset | Locked-out users | **Built**, not yet usable: the site must be deployed and its address added to the allowed redirect list in the auth settings. Email-verification screen not built |
 | 12 | Sign in with Apple / Google                                                             | Apple requires its sign-in if any other third-party sign-in is offered | Not built                                                                          |
 | 13 | Server push notifications                                                               | Tickets, payment failures, "we closed your session"                    | Not built. Needs Firebase and Apple keys                                           |
-| 14 | Extend a running session                                                                | In the 2012 deck; drivers expect it                                    | Not built                                                                          |
+| 14 | Extend a running session | In the 2012 deck; drivers expect it | **Built** |
 | 15 | Offline start and stop queue                                                            | Underground car parks                                                  | Not built. The schema has `client_started_at` for it                             |
 | 16 | Spoofed location                                                                        | Paying a cheap area's price from elsewhere                             | Not built. `fraud_flag` table exists; officer plate checks are the control today |
-| 17 | Rate limiting and abuse protection                                                      | Scripted sign-ups, plate lookups                                       | Not built beyond the auth service's own limits                                     |
+| 17 | Rate limiting and abuse protection | Scripted sign-ups, plate lookups | Partly built: 30 session starts per user per hour. Officer lookups and sign-ups rely on the auth service and role checks |
 | 18 | Taxes on fees, invoices for operators                                                   | Legal requirement in most places                                       | Not built. Needs an accountant's input per country                                 |
-| 19 | Closing times and "lot closing soon"                                                    | In the patent                                                          | Not built. No closing-time column yet                                              |
-| 20 | Import areas from a file (GeoJSON, KML)                                                 | Cities already have their zones as data                                | Not built                                                                          |
-| 21 | Delete or archive an area                                                               | Clean-up of mistakes                                                   | Not built. Unpublish is the workaround                                             |
+| 19 | Closing times and "lot closing soon" | In the patent | **Built**: closing time per area, shown to drivers, reminder before it. Opening hours and refusing a start while closed are not built |
+| 20 | Import areas from a file | Cities already have their zones as data | **Built** for GeoJSON, one shape at a time. KML and bulk import not built |
+| 21 | Delete or archive an area | Clean-up of mistakes | **Built** (archive; nothing is ever hard-deleted) |
 | 22 | Disputes and appeals flow for tickets                                                   | Fairness, and legal force of tickets                                   | Not built. Tickets are platform notices until a city signs                         |
 | 23 | Passes, promotions, family and business accounts                                        | In the patent and deck                                                 | Not built. Enums and tables are ready                                              |
 | 24 | French (Canada) and other languages                                                     | Toronto pilot                                                          | Not built. Text is in English in the screens                                       |
@@ -724,3 +741,34 @@ These are the things a parking-payments product needs that were not in the origi
 | Public pages                  | `apps/site/build.mjs`                                                                                                                |
 
 Related documents in this folder: `END-TO-END-PLAN.md` (plan and decisions), `BUILDS-AND-RELEASES.md`, `SETUP-AND-TESTING.md`, `EXPLAINER-FOR-MANAGEMENT.md`, and the 2012 knowledge base `01` to `09`.
+
+---
+
+## 18. Compliance audit: this specification checked against the code
+
+Done on 2026-11-14 by reading the migrations and source and running the suites. "Evidence" is where to look.
+
+| Spec section | Claim | Holds? | Evidence |
+|---|---|---|---|
+| 3 Roles | Four roles, enforced on the server | Yes | `user_role` enum; `_require_staff`; checks "driver cannot use officer / operator API", "operator admin is not a platform admin" |
+| 4 Architecture | No server-side Google calls | Yes | No Google host appears in `supabase/` or in any server function |
+| 4 Architecture | Phone carries only the publishable key | Yes | `apps/mobile/.env` holds the two public values; the secret key is only in the root `.env`, which is ignored by Git |
+| 5 Schema | Tables, constraints and indexes as listed | Yes | `supabase/migrations/20261110000001_schema.sql` and later files |
+| 5.2 | One running session per vehicle; idempotent start | Yes | Checks "second active session for the vehicle is rejected", "a retry returns the same session" |
+| 6 API | Every listed function exists and is callable only by its role | Yes | Function list from the migrations matches section 6; grants are applied in each migration |
+| 7.1 | One match rule for list and match | Yes | 40 geofence checks |
+| 7.2 | Phone and server agree | Yes | 400-point and 60-point parity checks, 0 mismatches |
+| 7.4 | Admin limits and cross-operator rule | Yes | Trigger `parking_area_guard`; checks in group 7d |
+| 7.5 | Publish reaches open apps within 60 s | Yes in code | 60-second refresh in `AppState.tsx`. Not timed on a device |
+| 8.1 | Fee rules | Yes | SQL and TypeScript engines share test vectors (8 database checks, 15 unit tests) |
+| 9 | Overdue sessions closed at the limit | Yes | Check "closed at the maximum stay, charged for that time only"; the scheduled job exists in `cron.job` |
+| 10 | Each reminder exists | Yes in code | `notify.ts`, `reminders.ts`, `background.ts`. "Left" and "driving" seen on the emulator; the rest not observed firing |
+| 11.1 | Driver screens | Yes | Emulator run |
+| 11.2 | Console tabs | Yes | Browser run. Platform tab by database checks only |
+| 11.3 | Public site pages | Built | `apps/site`. Not deployed |
+| 12 | Row-level security everywhere | Yes | RLS is on for every application table (checked in the live database; the only table without it is PostGIS's own reference table `spatial_ref_sys`); checks "driver sees only own…" |
+| 12 | Maps key not in the repository | Yes | Searched the tracked files for the key prefix: none |
+| 13 | Test counts | Yes | 169 + 20 + 15 on 2026-11-14 |
+| 15 | Gap register statuses | Yes | Updated in this version |
+
+**Does not hold yet (by design, listed in section 15):** real payments, server push, sign in with Apple or Google, offline queue, location-spoofing checks, taxes, disputes flow, passes and family accounts, other languages, accessibility audit, monitoring, load test, lawyer-reviewed legal text, patent paperwork, final name and domain, restricted Maps key, real-device and iPhone tests, tolls.

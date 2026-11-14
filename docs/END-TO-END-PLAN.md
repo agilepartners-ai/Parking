@@ -18,9 +18,9 @@ Decisions: the owner answered "use good defaults" to section 9, so the defaults 
 | Officer mode (same app, role-gated) | Basic: check a plate, valid-vehicles list, citation form | Database checks |
 | Operator console (web) | **v2**: draw areas, draft and publish with version history, rates, dashboard with charts, session search + CSV export, refunds, tickets (void), staff, audit log | Compiles and builds; server functions covered by database checks. Clicked through in a browser on 2026-11-13 (platform tab excepted) |
 | Platform admin | Same console, extra tab: operators, service fee, operator admins | Database checks |
-| Backend (Supabase: Postgres + PostGIS) | 6 migrations applied to the project, row-level security, fee engine, **148 database checks pass** | `node supabase/tests/run.mjs` |
+| Backend (Supabase: Postgres + PostGIS) | 7 migrations applied to the project, row-level security, fee engine, **169 database checks pass** | `node supabase/tests/run.mjs` |
 | Price changes | A tariff edit never changes a session that is already running (old tariff kept for it) | Database check |
-| Google Maps | Key read from the build environment or the local `.env` (never committed). Map turns on in app **0.2.0**; older installs keep the list view | Config resolved. **Needs one new native build to see the map** |
+| Google Maps | Key read from the build environment or the local `.env` (never committed). Map turns on in app **0.2.0**; older installs keep the list view | Seen working in the 0.2.0 Android build on the emulator (2026-11-14) |
 | Public site | Static pages in `apps/site`: how it works, privacy, terms, support, delete-my-account | Generated. **Legal text is a draft, not lawyer-reviewed. Not deployed** |
 | Payments | **Simulated** (no Stripe). Refunds are recorded only | - |
 | Server push (forgot to end, ticket issued, payment failed) | **Not built**: needs Firebase (FCM) credentials for Android and an Apple key | - |
