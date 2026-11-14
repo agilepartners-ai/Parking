@@ -33,7 +33,10 @@ export default function WheelPicker({
       last.current = index;
       ref.current?.scrollTo({ y: index * WHEEL_ITEM_H, animated: true });
     }
-  }, [index]);
+    // Keep the fade/scale in step even when no scroll event arrives (value set before the list was laid out).
+    const id = setTimeout(() => y.setValue(last.current * WHEEL_ITEM_H), 350);
+    return () => clearTimeout(id);
+  }, [index, y]);
 
   const rows = useMemo(
     () =>

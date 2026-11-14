@@ -12,7 +12,7 @@ const emailOk = (s: string) => /^\S+@\S+\.\S+$/.test(s.trim());
 
 export default function SignIn() {
   const t = useTheme();
-  const { signIn, signUp, mode, liveAvailable, switchMode, serverReachable } = useApp();
+  const { signIn, signUp, mode, liveAvailable, switchMode, serverReachable, requestPasswordReset } = useApp();
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
@@ -24,6 +24,21 @@ export default function SignIn() {
   const passRef = useRef<InputRef>(null);
 
   const demo = mode === 'demo';
+
+  async function forgot() {
+    setInfo(null);
+    if (!emailOk(email)) return setErrors({ email: 'Enter your email first, then tap Forgot password.' });
+    setErrors({});
+    setLoading(true);
+    try {
+      await requestPasswordReset(email);
+      setInfo('If that address has an account, we sent a link to set a new password. It works for one hour.');
+    } catch (err) {
+      setErrors({ form: errorMessage(err) });
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function submit() {
     setInfo(null);
@@ -82,6 +97,7 @@ export default function SignIn() {
               <Field ref={passRef} label="Password" value={password} onChangeText={setPassword} placeholder="At least 6 characters" secureTextEntry autoCapitalize="none" textContentType={creating ? 'newPassword' : 'password'} autoComplete={creating ? 'new-password' : 'current-password'} returnKeyType="go" onSubmitEditing={submit} error={errors.password} />
               {errors.form ? <Banner tone="danger" title={creating ? 'Could not create account' : 'Could not sign in'} text={errors.form} /> : null}
               <Button title={creating ? 'Create account' : 'Sign in'} onPress={submit} loading={loading} />
+              {!creating ? <Button variant="ghost" size="sm" title="Forgot password?" onPress={forgot} disabled={loading} /> : null}
               <Button variant="ghost" title={creating ? 'I already have an account' : 'Create an account'} onPress={() => { setCreating(!creating); setErrors({}); }} />
             </Card>
           )}

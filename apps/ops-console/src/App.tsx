@@ -141,20 +141,20 @@ function Dashboard() {
 }
 
 interface Draft {
-  id: string | null; name: string; level: 2 | 3; maxStay: string; active: boolean;
+  id: string | null; name: string; level: 2 | 3; maxStay: string; closing: string; active: boolean;
   planName: string; minCents: string; dailyMax: string; grace: string;
   rules: { days: number[]; start: string; end: string; price: string; priority: string }[];
   geometry: AreaGeometry | null;
 }
 
 const blankDraft = (): Draft => ({
-  id: null, name: '', level: 3, maxStay: '', active: false, planName: '', minCents: '1.00', dailyMax: '', grace: '5',
+  id: null, name: '', level: 3, maxStay: '', closing: '', active: false, planName: '', minCents: '1.00', dailyMax: '', grace: '5',
   rules: [{ days: [1, 2, 3, 4, 5, 6, 7], start: '08:00', end: '24:00', price: '3.00', priority: '0' }], geometry: null,
 });
 
 function toDraft(a: OperatorArea): Draft {
   return {
-    id: a.id, name: a.name, level: a.level === 2 ? 2 : 3, maxStay: a.max_stay_minutes ? String(a.max_stay_minutes) : '', active: a.active,
+    id: a.id, name: a.name, level: a.level === 2 ? 2 : 3, maxStay: a.max_stay_minutes ? String(a.max_stay_minutes) : '', closing: a.closing_time ?? '', active: a.active,
     planName: a.plan.name, minCents: (a.plan.min_charge_cents / 100).toFixed(2), dailyMax: a.plan.daily_max_cents != null ? (a.plan.daily_max_cents / 100).toFixed(2) : '',
     grace: String(a.plan.grace_minutes),
     rules: a.plan.rules.map((r) => ({ days: r.days_of_week, start: r.start_time, end: r.end_time, price: (r.price_per_hour_cents / 100).toFixed(2), priority: String(r.priority) })),
@@ -170,6 +170,8 @@ const AREA_ERRORS: Record<string, string> = {
   area_overlaps_other_operator: 'This shape overlaps a published area of another operator, so it cannot be published. Move its edge.',
   invalid_geometry: 'This shape is not valid. Draw it again.',
   self_intersecting: 'The outline crosses itself. It will be repaired when saved; check the result on the map.',
+  invalid_time: 'Write the closing time as HH:MM, for example 23:00, or leave it empty.',
+  area_has_active_sessions: 'A vehicle is parked here right now. Unpublish the area and archive it once it is empty.',
   area_not_found: 'That area belongs to another operator.',
   operator_required: 'Your account is not linked to an operator. A platform admin edits an existing area, or assigns you to an operator first.',
 };
@@ -231,11 +233,37 @@ function Areas() {
         p_max_stay: draft.maxStay ? parseInt(draft.maxStay, 10) : null, p_active: draft.active,
         p_plan: { name: draft.planName || `${draft.name} rate`, min_charge_cents: cents(draft.minCents), daily_max_cents: draft.dailyMax ? cents(draft.dailyMax) : null, grace_minutes: parseInt(draft.grace || '0', 10), rules },
       });
+      let final = saved;
+      if ((draft.closing.trim() || '') !== (saved.closing_time ?? '')) final = await rpc<OperatorArea>('operator_set_area_hours', { p_area_id: saved.id, p_closing_time: draft.closing.trim() });
       await load();
-      setDraft(toDraft(saved));
+      setDraft(toDraft(final));
       setStamp((n) => n + 1);
       setMsg(saved.active ? 'Saved. It is published, so drivers see the change right away. Cars already parked keep the old price until they leave.' : 'Saved as a draft. Drivers cannot see it until you publish.');
     } catch (e) { setError(areaError(e)); } finally { setSaving(false); }
+  }
+
+  async function archive() {
+    if (!draft?.id) return;
+    if (!window.confirm(`Archive "${draft.name}"? Drivers and this list will no longer show it. Receipts and history are kept. This cannot be undone from the console.`)) return;
+    setSaving(true); setError(''); setMsg('');
+    try { await rpc('operator_archive_area', { p_area_id: draft.id }); await load(); setDraft(null); }
+    catch (e) { setError(areaError(e)); } finally { setSaving(false); }
+  }
+
+  // Import a shape drawn elsewhere (GeoJSON Feature, FeatureCollection or bare geometry). The first polygon is used.
+  async function importFile(f: File | undefined) {
+    if (!f) return;
+    setError(''); setMsg('');
+    try {
+      const j = JSON.parse(await f.text()) as { type?: string; features?: unknown[]; geometry?: unknown; properties?: { name?: string } };
+      const feats = (j.type === 'FeatureCollection' ? j.features ?? [] : [j]) as { type?: string; geometry?: AreaGeometry; properties?: { name?: string }; coordinates?: unknown }[];
+      const hit = feats.map((x) => ({ g: (x.type === 'Feature' ? x.geometry : x) as AreaGeometry | undefined, name: x.properties?.name })).find((x) => x.g && (x.g.type === 'Polygon' || x.g.type === 'MultiPolygon'));
+      if (!hit?.g) throw new Error('no_polygon');
+      setDraft({ ...blankDraft(), geometry: hit.g, name: hit.name ?? f.name.replace(/\.(geo)?json$/i, '') });
+      setMsg(feats.length > 1 ? `Imported the first of ${feats.length} shapes. Check it on the map, set the rates, then save.` : 'Imported. Check it on the map, set the rates, then save.');
+    } catch {
+      setError('That file is not GeoJSON with a polygon. Export the area as GeoJSON (WGS84, longitude then latitude) and try again.');
+    }
   }
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => (d ? { ...d, [k]: v } : d));
@@ -261,6 +289,7 @@ function Areas() {
               <div className="row">
                 <div><label>Type</label><select value={draft.level} onChange={(e) => set('level', Number(e.target.value) as 2 | 3)}><option value={3}>Parking area (lot / street)</option><option value={2}>City zone (fallback)</option></select></div>
                 <div><label>Max stay (min)</label><input value={draft.maxStay} onChange={(e) => set('maxStay', e.target.value)} placeholder="none" inputMode="numeric" /></div>
+                <div><label>Closes at</label><input value={draft.closing} onChange={(e) => set('closing', e.target.value)} placeholder="never" aria-label="Closing time, 24-hour HH:MM" /></div>
               </div>
               <div className="row">
                 <div><label>Minimum charge ($)</label><input value={draft.minCents} onChange={(e) => set('minCents', e.target.value)} inputMode="decimal" /></div>
@@ -298,9 +327,12 @@ function Areas() {
                 <button className="btn secondary" onClick={() => { setDraft(null); setError(''); setMsg(''); }}>Close</button>
               </div>
               {draft.id ? <Versions areaId={draft.id} stamp={stamp} /> : null}
+              {draft.id && !draft.active ? <button type="button" className="linkish" disabled={saving} onClick={archive}>Archive this area</button> : null}
             </div>
           )}
           {!draft ? <button className="btn secondary" onClick={() => setDraft(blankDraft())}>+ New area (then draw it)</button> : null}
+          {!draft ? <label className="btn secondary filebtn">Import GeoJSON<input type="file" accept=".json,.geojson,application/geo+json,application/json" onChange={(e) => { void importFile(e.target.files?.[0]); e.target.value = ''; }} /></label> : null}
+          {msg && !draft ? <div className="ok">{msg}</div> : null}
           {error && !draft ? <div className="error">{error}</div> : null}
         </div>
       </div>

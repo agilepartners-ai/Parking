@@ -18,6 +18,8 @@ export default function DurationSheet({
   initial,
   onClose,
   onConfirm,
+  maxMinutes,
+  title,
 }: {
   visible: boolean;
   area: ParkingArea | null;
@@ -25,14 +27,18 @@ export default function DurationSheet({
   initial: number | null;
   onClose: () => void;
   onConfirm: (minutes: number | null) => void;
+  /** Extending a running session: the cap is what is left of the maximum stay, and no cost estimate is shown. */
+  maxMinutes?: number;
+  title?: string;
 }) {
   const t = useTheme();
-  const maxMin = Math.min(area?.max_stay_minutes ?? 24 * 60, 24 * 60);
+  const extending = maxMinutes != null;
+  const maxMin = Math.max(MIN, Math.min(maxMinutes ?? area?.max_stay_minutes ?? 24 * 60, 24 * 60));
   const maxHours = Math.floor(maxMin / 60);
   const [minutes, setMinutes] = useState<number>(initial ?? 60);
 
   useEffect(() => {
-    if (visible) setMinutes(Math.min(Math.max(initial ?? 60, MIN), maxMin));
+    if (visible) setMinutes(Math.min(Math.max(Math.ceil((initial ?? 60) / STEP) * STEP, MIN), maxMin)); // wheels move in 5-minute steps
   }, [visible, initial, maxMin]);
 
   const hourItems = useMemo(() => Array.from({ length: maxHours + 1 }, (_, h) => `${h}`), [maxHours]);
@@ -56,7 +62,7 @@ export default function DurationSheet({
       <SafeAreaView edges={['bottom']} style={{ backgroundColor: t.card, borderTopLeftRadius: radius.sheet, borderTopRightRadius: radius.sheet, paddingHorizontal: space.lg, paddingTop: space.md, gap: space.md }}>
         <View style={{ alignSelf: 'center', width: 36, height: 4, borderRadius: 2, backgroundColor: t.border }} />
         <View style={{ alignItems: 'center', gap: 2 }}>
-          <Text accessibilityRole="header" style={{ color: t.text, fontSize: 20, fontWeight: '800' }}>How long will you park?</Text>
+          <Text accessibilityRole="header" style={{ color: t.text, fontSize: 20, fontWeight: '800' }}>{title ?? 'How long will you park?'}</Text>
           <Text style={{ color: t.muted, fontSize: 14 }}>You only pay for the time you actually use.</Text>
         </View>
 
@@ -78,14 +84,20 @@ export default function DurationSheet({
             <Text style={{ color: t.muted, fontSize: 13 }}>Until about</Text>
             <Text style={{ color: t.text, fontSize: 20, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{finishText}</Text>
           </View>
-          <View style={{ alignItems: 'flex-end' }}>
-            <Text style={{ color: t.muted, fontSize: 13 }}>Estimated cost</Text>
-            <Text style={{ color: t.text, fontSize: 20, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
-              {estimate == null || !area ? '-' : estimate === 0 ? 'Free' : formatMoney(estimate, area.plan.currency)}
-            </Text>
-          </View>
+          {extending ? null : (
+            <View style={{ alignItems: 'flex-end' }}>
+              <Text style={{ color: t.muted, fontSize: 13 }}>Estimated cost</Text>
+              <Text style={{ color: t.text, fontSize: 20, fontWeight: '800', fontVariant: ['tabular-nums'] }}>
+                {estimate == null || !area ? '-' : estimate === 0 ? 'Free' : formatMoney(estimate, area.plan.currency)}
+              </Text>
+            </View>
+          )}
         </View>
-        {area?.max_stay_minutes ? <Text style={{ color: t.muted, fontSize: 12, textAlign: 'center' }}>This area allows up to {formatDuration(area.max_stay_minutes)}.</Text> : null}
+        {extending ? (
+          <Text style={{ color: t.muted, fontSize: 12, textAlign: 'center' }}>Counted from now. You still pay only for the time you use{area?.max_stay_minutes ? `; ${formatDuration(maxMin)} of the maximum stay is left` : ''}.</Text>
+        ) : area?.max_stay_minutes ? (
+          <Text style={{ color: t.muted, fontSize: 12, textAlign: 'center' }}>This area allows up to {formatDuration(area.max_stay_minutes)}.</Text>
+        ) : null}
 
         <Button title="Set time" icon="checkmark" onPress={() => onConfirm(minutes)} />
         <Button variant="ghost" title="Park until I end it" onPress={() => onConfirm(null)} />

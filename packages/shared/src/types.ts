@@ -44,6 +44,8 @@ export interface ParkingArea {
   timezone: string;
   service_fee_bps: number;
   max_stay_minutes: number | null;
+  /** Operator-local "HH:MM" when the area closes, or null if it never closes. */
+  closing_time?: string | null;
   geometry: AreaGeometry;
   plan: RatePlan;
 }

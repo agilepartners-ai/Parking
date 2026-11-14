@@ -20,7 +20,7 @@ import { Enter, useToast } from '../../src/components/Motion';
 import { confirmDialog, notify } from '../../src/lib/dialog';
 import { askForLeaveWatch, shouldOfferLeaveWatch, startLeaveWatch } from '../../src/lib/background';
 import { useRefresh } from '../../src/lib/useRefresh';
-import { errorMessage, useApp } from '../../src/state/AppState';
+import { errorMessage, minutesUntilClose, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
 
 function useNow(intervalMs: number, enabled: boolean) {
@@ -52,12 +52,13 @@ function LiveDot({ color }: { color: string }) {
 export default function ParkScreen() {
   const t = useTheme();
   const router = useRouter();
-  const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, movingFast, startParking, endParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable, refreshAll } = useApp();
+  const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, movingFast, startParking, endParking, extendParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable, refreshAll } = useApp();
   const refreshControl = useRefresh(refreshAll);
   const toast = useToast();
   const [vehicleId, setVehicleId] = useState<string | null>(null);
   const [planned, setPlanned] = useState<number | null>(60);
   const [sheetOpen, setSheetOpen] = useState(false);
+  const [extendOpen, setExtendOpen] = useState(false);
   const now = useNow(1000, !!activeSession);
 
   useEffect(() => {
@@ -92,6 +93,16 @@ export default function ParkScreen() {
       }
     } catch (e) {
       notify('Could not start parking', errorMessage(e));
+    }
+  }
+
+  async function onExtend(remaining: number | null) {
+    setExtendOpen(false);
+    try {
+      const s = await extendParking(remaining);
+      toast.show(s.planned_minutes ? 'Parking time updated' : 'No end time set. End it when you leave.');
+    } catch (e) {
+      notify('Could not change the time', errorMessage(e));
     }
   }
 
@@ -185,7 +196,13 @@ export default function ParkScreen() {
                   <View style={{ height: 6, borderRadius: 3, width: `${Math.min(100, Math.round((usedMin / limit) * 100))}%`, backgroundColor: remaining != null && remaining <= 15 ? t.warn : t.brand }} />
                 </View>
               ) : null}
+              {sessionArea?.closing_time ? <Text style={{ color: t.heroMuted, fontSize: 13 }}>This area closes at {sessionArea.closing_time}.</Text> : null}
               <Button title="End parking and pay" icon="stop-circle" variant="inverse" onPress={onEnd} loading={busy} />
+              {remaining == null || remaining > 1 ? (
+                <Pressable accessibilityRole="button" onPress={() => setExtendOpen(true)} style={({ pressed }) => ({ alignSelf: 'center', paddingVertical: 8, paddingHorizontal: 12, opacity: pressed ? 0.7 : 1 })}>
+                  <Text style={{ color: t.heroText, fontWeight: '700', fontSize: 15 }}>{activeSession.planned_minutes ? 'Change my time' : 'Set a reminder time'}</Text>
+                </Pressable>
+              ) : null}
             </Card>
             {sessionArea ? <RateCard area={sessionArea} /> : <SkeletonCard lines={3} />}
             {testSpot ? <Button variant="secondary" title="Demo: simulate driving away" icon="navigate" onPress={simulateLeaving} /> : null}
@@ -217,7 +234,11 @@ export default function ParkScreen() {
                     </Row>
                   );
                 })()}
-                {currentArea.max_stay_minutes ? <Text style={[ty.small, { color: t.muted }]}>Maximum stay {formatDuration(currentArea.max_stay_minutes)}</Text> : null}
+                {currentArea.max_stay_minutes || currentArea.closing_time ? (
+                  <Text style={[ty.small, { color: t.muted }]}>
+                    {[currentArea.max_stay_minutes ? `Maximum stay ${formatDuration(currentArea.max_stay_minutes)}` : null, currentArea.closing_time ? `Closes at ${currentArea.closing_time}${(minutesUntilClose(currentArea) ?? 999) <= 60 ? ` (in ${minutesUntilClose(currentArea)} min)` : ''}` : null].filter(Boolean).join(' · ')}
+                  </Text>
+                ) : null}
               </View>
               <Divider />
               <Label>Vehicle</Label>
@@ -264,6 +285,15 @@ export default function ParkScreen() {
         )}
         <TestLocation />
       </ScrollView>
+      <DurationSheet
+        visible={extendOpen}
+        area={sessionArea}
+        initial={plannedLeft != null && plannedLeft > 0 ? plannedLeft : 30}
+        maxMinutes={remaining != null ? Math.max(5, remaining) : 24 * 60}
+        title="How much longer?"
+        onClose={() => setExtendOpen(false)}
+        onConfirm={(m) => void onExtend(m)}
+      />
       <DurationSheet
         visible={sheetOpen}
         area={currentArea}

@@ -1,6 +1,6 @@
 // Generates the public site (plain HTML, no framework). Run: node apps/site/build.mjs
 // Edit the text here, not in the .html files. Deploy the folder to Cloudflare Pages as static files.
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -198,4 +198,76 @@ page(
 `,
 );
 
-console.log('site built: index, privacy, terms, support, delete-account');
+// ---- password reset --------------------------------------------------------------------------
+// The app's "Forgot password?" emails a link that lands here. The page talks to the auth service directly
+// with the public (publishable) key; the same values ship inside the app and the console.
+function publicEnv() {
+  if (process.env.SUPABASE_URL && process.env.SUPABASE_PUBLISHABLE_KEY) return { url: process.env.SUPABASE_URL, key: process.env.SUPABASE_PUBLISHABLE_KEY };
+  for (const f of ['../ops-console/.env', '../mobile/.env']) {
+    try {
+      const env = Object.fromEntries(
+        readFileSync(join(here, f), 'utf8')
+          .split(/\r?\n/)
+          .filter((l) => l.includes('=') && !l.trim().startsWith('#'))
+          .map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim().replace(/^["']|["']$/g, '')]),
+      );
+      const url = env.VITE_SUPABASE_URL ?? env.EXPO_PUBLIC_SUPABASE_URL;
+      const key = env.VITE_SUPABASE_KEY ?? env.EXPO_PUBLIC_SUPABASE_KEY;
+      if (url && key) return { url, key };
+    } catch {
+      /* try the next file */
+    }
+  }
+  return null;
+}
+const pub = publicEnv();
+if (pub) {
+  page(
+    'reset-password.html',
+    `Set a new password - ${NAME}`,
+    `Choose a new password for your ${NAME} account.`,
+    `
+<article>
+<h1>Set a new password</h1>
+<p id="status" class="muted" role="status">Checking your link…</p>
+<form id="form" hidden>
+  <p><label for="p1">New password</label><br><input id="p1" type="password" autocomplete="new-password" minlength="8" required></p>
+  <p><label for="p2">Repeat it</label><br><input id="p2" type="password" autocomplete="new-password" minlength="8" required></p>
+  <p id="err" class="err" role="alert"></p>
+  <button class="cta" type="submit">Save password</button>
+</form>
+</article>
+<script type="module">
+import { createClient } from 'https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/+esm';
+const sb = createClient(${JSON.stringify(pub.url)}, ${JSON.stringify(pub.key)}, { auth: { detectSessionInUrl: true, persistSession: false } });
+const status = document.getElementById('status'), form = document.getElementById('form'), err = document.getElementById('err');
+const params = new URLSearchParams(location.hash.slice(1) || location.search);
+function ready() { status.textContent = 'Choose a new password, at least 8 characters.'; form.hidden = false; document.getElementById('p1').focus(); }
+if (params.get('error_description')) {
+  status.textContent = 'This link has expired or was already used. Open the app and tap “Forgot password?” again.';
+} else {
+  sb.auth.onAuthStateChange((event, session) => { if (session && form.hidden) ready(); });
+  const { data } = await sb.auth.getSession();
+  if (data.session) ready();
+  else setTimeout(() => { if (form.hidden) status.textContent = 'This page only works from the link in the password email. Open the app and tap “Forgot password?”.'; }, 4000);
+}
+form.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  err.textContent = '';
+  const a = document.getElementById('p1').value, b = document.getElementById('p2').value;
+  if (a.length < 8) return (err.textContent = 'Use at least 8 characters.');
+  if (a !== b) return (err.textContent = 'The two passwords are not the same.');
+  const { error } = await sb.auth.updateUser({ password: a });
+  if (error) return (err.textContent = error.message);
+  await sb.auth.signOut();
+  form.hidden = true;
+  status.textContent = 'Password saved. Go back to the app and sign in with the new password.';
+});
+</script>
+`,
+  );
+} else {
+  console.log('reset-password.html skipped: no public Supabase URL/key found');
+}
+
+console.log('site built: index, privacy, terms, support, delete-account' + (pub ? ', reset-password' : ''));

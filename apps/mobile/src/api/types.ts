@@ -38,6 +38,8 @@ export interface Api {
   /** Returns null when the backend wants the email confirmed first. */
   signUp(email: string, password: string, fullName: string): Promise<Profile | null>;
   signOut(): Promise<void>;
+  /** Sends a reset link to the address. Resolves even if no account has it (never reveals who is registered). */
+  requestPasswordReset(email: string): Promise<void>;
   profile(): Promise<Profile>;
   updateName(name: string): Promise<void>;
   deleteAccount(): Promise<void>;
@@ -52,6 +54,8 @@ export interface Api {
   areas(lat: number, lng: number): Promise<ParkingArea[]>;
   area(id: string): Promise<ParkingArea | null>;
   startSession(i: StartInput): Promise<ParkingSession>;
+  /** Change the planned time of a running session. Minutes are counted from its start; null = until I end it. */
+  extendSession(id: string, plannedMinutes: number | null): Promise<ParkingSession>;
   endSession(id: string, lat?: number | null, lng?: number | null): Promise<ParkingSession>;
   activeSession(): Promise<ParkingSession | null>;
   sessions(): Promise<ParkingSession[]>;

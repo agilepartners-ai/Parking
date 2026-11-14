@@ -208,6 +208,20 @@ export const demoApi: Api = {
     await save();
     return strip(sess);
   },
+  async requestPasswordReset() {
+    /* demo mode has no passwords */
+  },
+  async extendSession(id, plannedMinutes) {
+    const s = await load();
+    const sess = mine(s).find((x) => x.id === id);
+    if (!sess) throw new ApiError('session_not_found');
+    if (sess.status !== 'active') throw new ApiError('session_not_active');
+    const max = areaById(sess.area_id).max_stay_minutes ?? 1440;
+    const elapsed = Math.ceil((Date.now() - Date.parse(sess.started_at)) / 60_000);
+    sess.planned_minutes = plannedMinutes && plannedMinutes > 0 ? Math.min(Math.max(plannedMinutes, elapsed + 1), max) : null;
+    await save();
+    return strip(sess);
+  },
   async endSession(id) {
     const s = await load();
     const sess = mine(s).find((x) => x.id === id);

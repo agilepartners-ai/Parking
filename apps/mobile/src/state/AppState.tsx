@@ -12,6 +12,8 @@ import {
   type ParkingSession,
   type Role,
   type Vehicle,
+  localParts,
+  timeToMinutes,
 } from '@parkpay/shared';
 import { demoApi } from '../api/demo';
 import { errorMessage } from '../api/errors';
@@ -96,6 +98,9 @@ interface Ctx {
   simulateLeaving(): Promise<void>;
   startParking(vehicleId: string, plannedMinutes?: number | null): Promise<ParkingSession>;
   endParking(): Promise<ParkingSession>;
+  /** Change the planned time: `remainingMinutes` from now, or null for "until I end it". */
+  extendParking(remainingMinutes: number | null): Promise<ParkingSession>;
+  requestPasswordReset(email: string): Promise<void>;
   deleteAccount(): Promise<void>;
 }
 
@@ -109,6 +114,13 @@ export const useApp = () => {
 const MODE_KEY = 'parkpay.mode';
 const SPOT_KEY = 'parkpay.testSpot';
 const ONBOARD_KEY = 'parkpay.onboarded.';
+/** Minutes from now until the area's closing time (operator-local), or null if it never closes. */
+export function minutesUntilClose(area: Pick<ParkingArea, 'closing_time' | 'timezone'> | null | undefined, nowMs = Date.now()): number | null {
+  if (!area?.closing_time) return null;
+  const { minuteOfDay } = localParts(nowMs, area.timezone);
+  return (timeToMinutes(area.closing_time) - minuteOfDay + 1440) % 1440;
+}
+
 const uuid = () => 'k' + Math.random().toString(36).slice(2) + Date.now().toString(36);
 
 export function AppProvider({ children }: { children: React.ReactNode }) {
@@ -520,7 +532,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setActiveSession(s);
         notifiedLeft.current = null;
         const area = areas.find((a) => a.id === s.area_id);
-        void scheduleSessionReminders(s.id, s.area_name, s.max_stay_minutes, s.planned_minutes ?? null);
+        void scheduleSessionReminders(s.id, s.area_name, s.max_stay_minutes, s.planned_minutes ?? null, { closesIn: minutesUntilClose(area) });
         if (area) void startLeaveWatch({ areaName: area.name, geometry: area.geometry });
         return s;
       } finally {
@@ -544,6 +556,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setBusy(false);
     }
   }, [api, activeSession, fix]);
+
+  const extendParking = useCallback(
+    async (remainingMinutes: number | null) => {
+      if (!activeSession) throw new Error('No active session');
+      setBusy(true);
+      try {
+        const elapsed = Math.max(0, Math.floor((Date.now() - Date.parse(activeSession.started_at)) / 60_000));
+        const s = await api.extendSession(activeSession.id, remainingMinutes == null ? null : elapsed + remainingMinutes);
+        setActiveSession(s);
+        await cancelSessionReminders(s.id);
+        void scheduleSessionReminders(s.id, s.area_name, s.max_stay_minutes, s.planned_minutes ?? null, { elapsed, closesIn: minutesUntilClose(sessionArea) });
+        return s;
+      } finally {
+        setBusy(false);
+      }
+    },
+    [api, activeSession, sessionArea],
+  );
+
+  const requestPasswordReset = useCallback((email: string) => api.requestPasswordReset(email), [api]);
 
   const deleteAccount = useCallback(async () => {
     await api.deleteAccount();
@@ -592,6 +624,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     simulateLeaving,
     startParking,
     endParking,
+    extendParking,
+    requestPasswordReset,
     deleteAccount,
   };
   return <C.Provider value={value}>{children}</C.Provider>;

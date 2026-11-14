@@ -11,6 +11,8 @@ const MESSAGES: Record<string, string> = {
   location_too_inaccurate: 'Your phone is not sure where you are yet. Wait a few seconds in the open, then try again.',
   citation_not_found: 'That ticket was not found.',
   citation_not_payable: 'That ticket is already paid or was cancelled.',
+  rate_limited: 'Too many parking sessions in a short time. Wait a while and try again.',
+  max_stay_reached: 'This area\'s maximum stay is used up. End your session.',
   invalid_location: 'Your location is not available yet. Try again in a moment.',
   invalid_plate: 'Enter a valid plate (2 to 10 letters or numbers).',
   invalid_fine: 'Enter a fine amount between $1 and $500.',

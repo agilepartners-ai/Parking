@@ -48,13 +48,25 @@ export async function notifyNow(title: string, body: string) {
 const idsKey = (sessionId: string) => `parkpay.reminders.${sessionId}`;
 
 /** Reminders for a running session: 15 min before the maximum stay, and a long-stay nudge. */
-export async function scheduleSessionReminders(sessionId: string, areaName: string, maxStayMinutes: number | null, plannedMinutes: number | null = null) {
+/**
+ * Schedules every timed reminder for a running session. `elapsed` = minutes already parked (non-zero when the
+ * plan is changed mid-session); `closesIn` = minutes until the area closes, if it has a closing time.
+ */
+export async function scheduleSessionReminders(
+  sessionId: string,
+  areaName: string,
+  maxStayMinutes: number | null,
+  plannedMinutes: number | null = null,
+  opts: { elapsed?: number; closesIn?: number | null } = {},
+) {
+  const gone = opts.elapsed ?? 0;
   if (!supported) return;
   configure();
   try {
     if (!(await ensureNotificationPermission())) return;
     const ids: string[] = [];
-    const add = async (seconds: number, title: string, body: string) => {
+    const add = async (fromStartSeconds: number, title: string, body: string) => {
+      const seconds = fromStartSeconds - gone * 60; // triggers count from now, the plan counts from the start
       if (seconds < 5) return;
       ids.push(
         await Notifications.scheduleNotificationAsync({
@@ -74,6 +86,11 @@ export async function scheduleSessionReminders(sessionId: string, areaName: stri
       await add(maxStayMinutes * 60, 'Maximum stay reached', `You have reached the maximum stay in ${areaName}. End your session to avoid a fine.`);
     } else if (!plannedMinutes) {
       await add(4 * 3600, 'Still parked?', `Your session in ${areaName} has been running for 4 hours.`);
+    }
+    // The area closes: 15 minutes' notice (5 if it closes sooner than that).
+    if (opts.closesIn != null && opts.closesIn > 2) {
+      const lead = opts.closesIn > 20 ? 15 : Math.min(5, opts.closesIn - 1);
+      await add((gone + opts.closesIn - lead) * 60, `${areaName} closes soon`, `It closes in ${lead} minutes. Move your vehicle and end your session.`);
     }
     // Forgot to end: a late nudge for any session that is still open after 12 hours.
     if (!maxStayMinutes || maxStayMinutes > 12 * 60) await add(12 * 3600, 'Did you forget to end parking?', `Your session in ${areaName} has been open for 12 hours and is still charging.`);

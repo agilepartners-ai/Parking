@@ -9,6 +9,8 @@ import type { Api, CitationInput, Profile, StartInput } from './types';
 
 export const SUPABASE_URL = process.env.EXPO_PUBLIC_SUPABASE_URL ?? '';
 export const SUPABASE_KEY = process.env.EXPO_PUBLIC_SUPABASE_KEY ?? '';
+/** Public website (privacy, terms, support, password reset page). */
+export const SITE_URL = (process.env.EXPO_PUBLIC_SITE_URL ?? 'https://parkpay-site.pages.dev').replace(/\/$/, '');
 export const liveConfigured = SUPABASE_URL.startsWith('http') && SUPABASE_KEY.length > 10;
 
 let client: SupabaseClient | null = null;
@@ -77,6 +79,10 @@ export const supabaseApi: Api = {
   },
   async signOut() {
     await sb().auth.signOut();
+  },
+  async requestPasswordReset(email) {
+    const { error } = await sb().auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: `${SITE_URL}/reset-password.html` });
+    if (error) throw toApiError(error);
   },
   profile: () => rpc<Profile>('my_profile'),
   async updateName(name) {
@@ -149,6 +155,7 @@ export const supabaseApi: Api = {
     await rpc('session_ping', { p_session_id: sessionId, p_lat: lat, p_lng: lng, p_accuracy: num(accuracy), p_speed: num(speed) });
   },
 
+  extendSession: (id, plannedMinutes) => rpc<ParkingSession>('extend_session', { p_session_id: id, p_planned_minutes: plannedMinutes }),
   myCitations: () => rpc<Citation[]>('my_citations'),
   payCitation: async (id) => {
     await rpc('pay_citation', { p_citation_id: id });

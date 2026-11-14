@@ -364,6 +364,39 @@ eq('driver has no active session afterwards', val(await as(dana, `select my_acti
 check('clients cannot run the clean-up job', !!(await as(dana, `select expire_overdue_sessions()`)).error);
 check('clients cannot call the internal matcher', !!(await as(dana, `select * from find_parking_area(43.7, -79.45)`)).error);
 
+// ---- 7e. extend, closing time, archive, rate limit ------------------------------------------
+console.log('\nextend, hours, archive, limits');
+eq('operator sets a closing time', val(await as(omar, `select operator_set_area_hours($1, '23:00') as a`, [big.id]), 'a')?.closing_time, '23:00');
+check('drivers see the closing time', val(await as(dana, `select list_areas(43.701, -79.447, 3000) as a`), 'a').find((a) => a.name === 'Geo Big Lot')?.closing_time === '23:00');
+check('nonsense time is rejected', /invalid_time/.test((await as(omar, `select operator_set_area_hours($1, '25:99')`, [big.id])).error ?? ''));
+check('another operator cannot set hours', /area_not_found/.test((await as(bob, `select operator_set_area_hours($1, '20:00')`, [big.id])).error ?? ''));
+eq('closing time can be cleared', val(await as(omar, `select operator_set_area_hours($1, '') as a`, [big.id]), 'a')?.closing_time, null);
+
+const ex = val(await as(dana, `select start_session($1, 43.7015, -79.4495, 20, 0, 'e1', 30) as s`, [danaVeh.id]), 's');
+eq('session starts with a 30 minute plan', ex?.planned_minutes, 30);
+eq('driver extends to 45 minutes', val(await as(dana, `select extend_session($1, 45) as s`, [ex.id]), 's')?.planned_minutes, 45);
+eq('extension is capped at the maximum stay', val(await as(dana, `select extend_session($1, 9999) as s`, [ex.id]), 's')?.planned_minutes, 60);
+eq('plan can be removed (until I end it)', val(await as(dana, `select extend_session($1, null) as s`, [ex.id]), 's')?.planned_minutes, null);
+check('nobody else can extend it', /session_not_found/.test((await as(alice, `select extend_session($1, 50)`, [ex.id])).error ?? ''));
+await sys(`update parking_session set started_at = now() - interval '40 minutes' where id = $1`, [ex.id]);
+check('a plan cannot be set in the past', val(await as(dana, `select extend_session($1, 10) as s`, [ex.id]), 's')?.planned_minutes >= 41);
+check('an area with a parked car cannot be archived', /area_has_active_sessions/.test((await as(omar, `select operator_archive_area($1)`, [big.id])).error ?? ''));
+await as(dana, `select end_session($1)`, [ex.id]);
+check('an ended session cannot be extended', /session_not_active/.test((await as(dana, `select extend_session($1, 50)`, [ex.id])).error ?? ''));
+
+check('another operator cannot archive it', /area_not_found/.test((await as(bob, `select operator_archive_area($1)`, [big.id])).error ?? ''));
+check('operator archives the area', !(await as(omar, `select operator_archive_area($1)`, [big.id])).error);
+check('archived area leaves the console list', !val(await as(omar, `select operator_areas() as a`), 'a').some((a) => a.id === big.id));
+check('and is no longer matched', (await detect(43.7015, -79.4495)) !== 'Geo Big Lot');
+check('and cannot be published again', /area_not_found/.test((await as(omar, `select operator_publish_area($1, true)`, [big.id])).error ?? ''));
+check('its history and receipts are kept', (await sys(`select (select count(*) from parking_area_version where area_id = $1) v, (select count(*) from parking_session where area_id = $1) s`, [big.id]))[0].v > 0);
+
+await sys(`insert into parking_session (user_id, account_id, vehicle_id, plate_snapshot, area_id, rate_plan_id, status, started_at, ended_at, fee_cents, start_location, currency, idempotency_key)
+           select $1, $2, $3, 'DANA77', s.area_id, s.rate_plan_id, 'completed', now() - interval '10 minutes', now() - interval '5 minutes', 0, s.start_location, s.currency, 'rl' || g
+           from parking_session s, generate_series(1, 30) g where s.id = $4`, [dana, danaAcc, danaVeh.id, ex.id]);
+check('thirty starts in an hour trips the rate limit', /rate_limited/.test((await as(dana, `select start_session($1, $2, $3, 20, 0, 'rl-over')`, [danaVeh.id, CITY.lat, CITY.lng])).error ?? ''));
+check('a retry of an earlier request is still answered', val(await as(dana, `select start_session($1, $2, $3, 20, 0, 'e1') as s`, [danaVeh.id, CITY.lat, CITY.lng]), 's')?.id === ex.id);
+
 // ---- 8. account deletion -----------------------------------------------------------------
 console.log('\naccount deletion');
 const carol = await signUp('carol@test.dev', 'Carol');

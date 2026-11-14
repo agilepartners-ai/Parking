@@ -56,3 +56,6 @@ header.top nav { flex-wrap: wrap; }
 td, .big { font-variant-numeric: tabular-nums; }
 .geo { display: grid; gap: 6px; font-size: 13px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; }
 .geo .warn { color: var(--warn); }
+.linkish { background: none; border: 0; padding: 4px 0; color: var(--danger); cursor: pointer; font-size: 13px; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
+.filebtn { text-align: center; text-transform: none; letter-spacing: 0; font-size: inherit; margin: 0; }
+.filebtn input { display: none; }
