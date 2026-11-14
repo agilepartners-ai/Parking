@@ -5,6 +5,7 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { Logo } from '../../src/components/Boot';
 import KeyboardScroll from '../../src/components/KeyboardScroll';
 import { Banner, Body, Button, Card, Field, type InputRef } from '../../src/components/ui';
+import { DEV_TOOLS } from '../../src/lib/flags';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
 
@@ -79,7 +80,7 @@ export default function SignIn() {
             </View>
           </View>
 
-          {!demo && serverReachable === false ? <Banner tone="warn" title="Can't reach the server" text="Check your connection, or try demo mode below." /> : null}
+          {!demo && serverReachable === false ? <Banner tone="warn" title="Can't reach the server" text="Check your internet connection and try again." /> : null}
           {info ? <Banner tone="brand" title="Check your email" text={info} /> : null}
 
           {demo ? (
@@ -102,10 +103,10 @@ export default function SignIn() {
             </Card>
           )}
 
-          {liveAvailable ? (
+          {liveAvailable && DEV_TOOLS ? (
             <Button variant="secondary" title={demo ? 'Use my real account instead' : 'Try demo mode (offline)'} onPress={() => switchMode(demo ? 'live' : 'demo')} />
           ) : null}
-          <Body muted style={{ textAlign: 'center', fontSize: 12 }}>Prototype. Payments are simulated: no money moves.</Body>
+          <Body muted style={{ textAlign: 'center', fontSize: 12 }}>Test version. Payments are simulated: no money moves.</Body>
       </KeyboardScroll>
     </SafeAreaView>
   );

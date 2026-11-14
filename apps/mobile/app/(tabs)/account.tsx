@@ -5,6 +5,7 @@ import type { Role } from '@parkpay/shared';
 import { backgroundSupported } from '../../src/lib/background';
 import { Body, Button, Card, Chip, Divider, Field, IconBadge, Pill, Row, Screen, SectionTitle } from '../../src/components/ui';
 import { confirmDialog, notify } from '../../src/lib/dialog';
+import { DEV_TOOLS } from '../../src/lib/flags';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { space, type as ty, useTheme } from '../../src/theme';
 
@@ -50,8 +51,8 @@ export default function AccountScreen() {
             <Text style={{ color: t.brand, fontSize: 24, fontWeight: '800' }}>{initial}</Text>
           </View>
           <View style={{ flex: 1, gap: 4 }}>
-            <Text style={[ty.heading, { color: t.text, fontSize: 18 }]} numberOfLines={1}>{user?.full_name || 'Demo user'}</Text>
-            <Text style={[ty.small, { color: t.muted }]} numberOfLines={1}>{user?.email ?? 'Offline demo account'}</Text>
+            <Text style={[ty.heading, { color: t.text, fontSize: 18 }]} numberOfLines={1}>{user?.full_name || 'ParkPay user'}</Text>
+            <Text style={[ty.small, { color: t.muted }]} numberOfLines={1}>{user?.email ?? ''}</Text>
           </View>
           <Pill text={ROLE_LABEL[user?.role ?? 'driver']} tone={user?.role === 'driver' ? 'muted' : 'info'} />
         </Row>
@@ -60,33 +61,37 @@ export default function AccountScreen() {
         <Button variant="secondary" title="Save name" onPress={save} loading={saving} disabled={name.trim() === (user?.full_name ?? '')} />
       </Card>
 
-      <SectionTitle>Connection</SectionTitle>
-      <Card style={{ gap: space.md }}>
-        <Row>
-          <IconBadge name={mode === 'live' ? 'cloud-done' : 'phone-portrait'} tone={mode === 'live' ? 'brand' : 'warn'} />
-          <View style={{ flex: 1 }}>
-            <Text style={[ty.body, { color: t.text, fontWeight: '700' }]}>{mode === 'live' ? 'Live server' : 'Demo mode'}</Text>
-            <Text style={[ty.small, { color: t.muted }]}>{mode === 'live' ? 'Connected to your ParkPay project.' : 'Everything stays on this phone.'}</Text>
-          </View>
-        </Row>
-        {liveAvailable ? (
-          <Button
-            variant="secondary"
-            title={mode === 'live' ? 'Switch to demo mode' : 'Switch to live server'}
-            loading={switching}
-            onPress={async () => {
-              setSwitching(true);
-              try {
-                await switchMode(mode === 'live' ? 'demo' : 'live');
-              } finally {
-                setSwitching(false);
-              }
-            }}
-          />
-        ) : (
-          <Body muted style={{ fontSize: 12 }}>Add Supabase keys (apps/mobile/.env) to enable the live server.</Body>
-        )}
-      </Card>
+      {DEV_TOOLS ? (
+        <>
+          <SectionTitle>Connection</SectionTitle>
+          <Card style={{ gap: space.md }}>
+            <Row>
+              <IconBadge name={mode === 'live' ? 'cloud-done' : 'phone-portrait'} tone={mode === 'live' ? 'brand' : 'warn'} />
+              <View style={{ flex: 1 }}>
+                <Text style={[ty.body, { color: t.text, fontWeight: '700' }]}>{mode === 'live' ? 'Live server' : 'Demo mode'}</Text>
+                <Text style={[ty.small, { color: t.muted }]}>{mode === 'live' ? 'Connected to your ParkPay project.' : 'Everything stays on this phone.'}</Text>
+              </View>
+            </Row>
+            {liveAvailable ? (
+              <Button
+                variant="secondary"
+                title={mode === 'live' ? 'Switch to demo mode' : 'Switch to live server'}
+                loading={switching}
+                onPress={async () => {
+                  setSwitching(true);
+                  try {
+                    await switchMode(mode === 'live' ? 'demo' : 'live');
+                  } finally {
+                    setSwitching(false);
+                  }
+                }}
+              />
+            ) : (
+              <Body muted style={{ fontSize: 12 }}>Add Supabase keys (apps/mobile/.env) to enable the live server.</Body>
+            )}
+          </Card>
+        </>
+      ) : null}
 
       {mode === 'demo' ? (
         <>
@@ -104,7 +109,10 @@ export default function AccountScreen() {
         <Card>
           <Row>
             <IconBadge name="shield-checkmark" tone="info" />
-            <Body muted style={{ flex: 1 }}>Officer and operator access is granted by an operator admin.</Body>
+            <View style={{ flex: 1, gap: 2 }}>
+              <Text style={[ty.body, { color: t.text, fontWeight: '700' }]}>Your role: {ROLE_LABEL[user?.role ?? 'driver']}</Text>
+              <Body muted>Roles are not chosen in the app. An admin gives officer or operator access in the web console, under People &amp; roles.</Body>
+            </View>
           </Row>
         </Card>
       )}
@@ -138,7 +146,7 @@ export default function AccountScreen() {
         />
         <Button variant="ghost" title="Delete my account" onPress={confirmDelete} />
       </View>
-      <Body muted style={{ textAlign: 'center', fontSize: 12 }}>ParkPay {Constants.expoConfig?.version ?? ''} · prototype · payments are simulated</Body>
+      <Body muted style={{ textAlign: 'center', fontSize: 12 }}>ParkPay {Constants.expoConfig?.version ?? ''} · test version · payments are simulated</Body>
     </Screen>
   );
 }

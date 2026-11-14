@@ -16,7 +16,7 @@ const CUR = 'CAD';
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 
 type Tab = 'dashboard' | 'areas' | 'sessions' | 'tickets' | 'staff' | 'audit' | 'platform';
-const TAB_NAMES: Record<Tab, string> = { dashboard: 'Dashboard', areas: 'Areas & rates', sessions: 'Sessions', tickets: 'Tickets', staff: 'Staff', audit: 'Audit log', platform: 'Platform' };
+const TAB_NAMES: Record<Tab, string> = { dashboard: 'Dashboard', areas: 'Areas & rates', sessions: 'Sessions', tickets: 'Tickets', staff: 'People & roles', audit: 'Audit log', platform: 'Platform' };
 
 export default function App() {
   const [profile, setProfile] = useState<Profile | null>(null);
@@ -56,7 +56,7 @@ export default function App() {
         <button className="btn secondary" onClick={async () => { await supabase.auth.signOut(); setProfile(null); }}>Sign out</button>
       </header>
       <main>
-        {tab === 'dashboard' ? <Dashboard /> : tab === 'areas' ? <Areas /> : tab === 'sessions' ? <Sessions /> : tab === 'tickets' ? <Citations /> : tab === 'audit' ? <Audit /> : tab === 'platform' ? <Platform /> : <Staff />}
+        {tab === 'dashboard' ? <Dashboard /> : tab === 'areas' ? <Areas /> : tab === 'sessions' ? <Sessions /> : tab === 'tickets' ? <Citations /> : tab === 'audit' ? <Audit /> : tab === 'platform' ? <Platform /> : <Staff me={profile} />}
       </main>
     </>
   );
@@ -340,26 +340,97 @@ function Areas() {
   );
 }
 
-function Staff() {
+interface StaffRow { id: string; email: string; full_name: string; role: string; operator_id: string | null; operator_name: string | null; is_me: boolean }
+const ROLE_INFO: { id: 'driver' | 'officer' | 'operator_admin'; title: string; what: string }[] = [
+  { id: 'driver', title: 'Driver', what: 'Parks and pays in the app. Everyone starts here. No console access.' },
+  { id: 'officer', title: 'Officer', what: 'Driver, plus an Officer tab in the app: check plates and issue tickets.' },
+  { id: 'operator_admin', title: 'Operator admin', what: 'Signs in to this console: areas, rates, reports, refunds, staff.' },
+];
+const STAFF_ERRORS: Record<string, string> = {
+  user_not_found: 'No account with that email. The person must first create an account in the ParkPay app.',
+  cannot_change_own_role: 'You cannot change your own role. Ask another admin.',
+  operator_required: 'Choose which operator this person works for.',
+  forbidden: 'Your role is not allowed to make this change.',
+};
+const staffError = (e: unknown) => { const m = (e as Error).message; const k = Object.keys(STAFF_ERRORS).find((x) => m.includes(x)); return k ? STAFF_ERRORS[k] : m; };
+
+/** People & roles: who has access, and one dropdown to change it. */
+function Staff({ me }: { me: Profile }) {
+  const isPlatform = me.role === 'platform_admin';
+  const [rows, setRows] = useState<StaffRow[] | null>(null);
+  const [ops, setOps] = useState<{ id: string; name: string }[]>([]);
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState<'officer' | 'driver'>('officer');
+  const [role, setRole] = useState<'officer' | 'operator_admin'>('officer');
+  const [opId, setOpId] = useState(me.operator_id ?? '');
   const [msg, setMsg] = useState('');
   const [error, setError] = useState('');
-  async function apply() {
-    setMsg(''); setError('');
-    try { await rpc('operator_set_user_role', { p_email: email, p_role: role }); setMsg(`${email} is now ${role === 'officer' ? 'an officer' : 'a driver'}. They see the change when they reopen the app.`); }
-    catch (e) { setError((e as Error).message.includes('user_not_found') ? 'No user with that email. They must sign up in the app first.' : (e as Error).message); }
+  const [busy, setBusy] = useState('');
+  const roles = ROLE_INFO.filter((r) => isPlatform || r.id !== 'operator_admin');
+
+  const load = useCallback(async () => {
+    try { setRows(await rpc<StaffRow[]>('operator_staff')); } catch (e) { setError(staffError(e)); }
+  }, []);
+  useEffect(() => { void load(); }, [load]);
+  useEffect(() => { if (isPlatform) rpc<{ id: string; name: string }[]>('admin_operators').then((o) => { setOps(o); setOpId((cur) => cur || o[0]?.id || ''); }).catch(() => undefined); }, [isPlatform]);
+
+  async function change(who: string, to: string, operator: string | null) {
+    setMsg(''); setError(''); setBusy(who);
+    try {
+      await rpc('set_staff_role', { p_email: who, p_role: to, p_operator_id: operator });
+      setMsg(to === 'driver' ? `${who} is a driver again and no longer has staff access.` : `${who} is now ${to === 'officer' ? 'an officer' : 'an operator admin'}. They see the change the next time they open the app or console.`);
+      await load();
+    } catch (e) { setError(staffError(e)); } finally { setBusy(''); }
   }
+
   return (
-    <div className="grid" style={{ maxWidth: 520 }}>
-      <h2 style={{ margin: 0 }}>Staff</h2>
+    <div className="grid" style={{ maxWidth: 860 }}>
+      <h2 style={{ margin: 0 }}>People &amp; roles</h2>
+      <div className="grid cards">
+        {roles.map((r) => <div key={r.id} className="card"><h3>{r.title}</h3><div style={{ fontSize: 14 }}>{r.what}</div></div>)}
+      </div>
+
       <div className="card grid">
-        <p className="muted" style={{ margin: 0 }}>Make an existing app user an enforcement officer for your operator (they must have signed up first), or return them to a normal driver.</p>
-        <div><label>User email</label><input value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="officer@example.com" /></div>
-        <div><label>Role</label><select value={role} onChange={(e) => setRole(e.target.value as 'officer' | 'driver')}><option value="officer">Officer</option><option value="driver">Driver</option></select></div>
-        {error ? <div className="error">{error}</div> : null}
-        {msg ? <div className="ok">{msg}</div> : null}
-        <button className="btn" disabled={!email.includes('@')} onClick={apply}>Apply</button>
+        <h3>Give someone access</h3>
+        <p className="muted" style={{ margin: 0 }}>1. They create an account in the ParkPay app. 2. You type their email here and pick a role.</p>
+        <div className="row">
+          <div style={{ flex: 2 }}><label htmlFor="st-email">Their email</label><input id="st-email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="person@example.com" /></div>
+          <div><label htmlFor="st-role">Role</label><select id="st-role" value={role} onChange={(e) => setRole(e.target.value as 'officer' | 'operator_admin')}>{roles.filter((r) => r.id !== 'driver').map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}</select></div>
+          {isPlatform ? <div><label htmlFor="st-op">Operator</label><select id="st-op" value={opId} onChange={(e) => setOpId(e.target.value)}>{ops.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div> : null}
+          <button className="btn" style={{ flex: 0, whiteSpace: 'nowrap' }} disabled={!email.includes('@') || !!busy} onClick={async () => { await change(email.trim().toLowerCase(), role, isPlatform ? opId || null : null); setEmail(''); }}>Give access</button>
+        </div>
+        {error ? <div className="error" role="alert">{error}</div> : null}
+        {msg ? <div className="ok" role="status">{msg}</div> : null}
+      </div>
+
+      <div className="card" style={{ overflowX: 'auto' }}>
+        <h3>Who has access now</h3>
+        <table>
+          <thead><tr><th>Name</th><th>Email</th>{isPlatform ? <th>Operator</th> : null}<th>Role</th></tr></thead>
+          <tbody>
+            {(rows ?? []).map((u) => {
+              const locked = u.is_me || u.role === 'platform_admin' || (!isPlatform && u.role === 'operator_admin');
+              return (
+                <tr key={u.id}>
+                  <td><b>{u.full_name}</b>{u.is_me ? <span className="muted"> (you)</span> : null}</td>
+                  <td>{u.email}</td>
+                  {isPlatform ? <td>{u.operator_name ?? <span className="muted">all operators</span>}</td> : null}
+                  <td>
+                    {locked ? (
+                      <span className="pill">{u.role === 'platform_admin' ? 'Platform admin' : u.role === 'operator_admin' ? 'Operator admin' : 'Officer'}</span>
+                    ) : (
+                      <select aria-label={`Role of ${u.full_name}`} value={u.role} disabled={busy === u.email} style={{ maxWidth: 200 }}
+                        onChange={(e) => { const to = e.target.value; if (to === 'driver' && !window.confirm(`Remove staff access from ${u.full_name}?`)) return; void change(u.email, to, u.operator_id); }}>
+                        {roles.map((r) => <option key={r.id} value={r.id}>{r.id === 'driver' ? 'Driver (remove access)' : r.title}</option>)}
+                      </select>
+                    )}
+                  </td>
+                </tr>
+              );
+            })}
+            {rows && rows.length === 0 ? <tr><td colSpan={isPlatform ? 4 : 3} className="muted">Nobody has staff access yet.</td></tr> : null}
+            {!rows ? <tr><td colSpan={isPlatform ? 4 : 3} className="muted">Loading…</td></tr> : null}
+          </tbody>
+        </table>
       </div>
     </div>
   );

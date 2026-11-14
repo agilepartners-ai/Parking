@@ -22,6 +22,7 @@ import type { Api, Profile } from '../api/types';
 import { startLeaveWatch, stopLeaveWatch } from '../lib/background';
 import { FAST_MPS, stopArrivalGeofences, syncArrivalGeofences } from '../lib/reminders';
 import { withTimeout } from '../lib/boot';
+import { DEV_TOOLS } from '../lib/flags';
 import { cancelSessionReminders, notifyNow, scheduleSessionReminders } from '../lib/notify';
 
 export type Mode = 'live' | 'demo';
@@ -179,8 +180,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         const stored = (await withTimeout(AsyncStorage.getItem(MODE_KEY), 4000, 'Saved settings')) as Mode | null;
         if (stored === 'demo' || (stored === 'live' && liveConfigured)) m = stored;
+        if (!DEV_TOOLS && liveConfigured) m = 'live'; // released builds have no demo mode
         const spot = await withTimeout(AsyncStorage.getItem(SPOT_KEY), 4000, 'Saved settings');
-        if (spot === 'gps') setTestSpotState(null);
+        if (spot === 'gps' || !DEV_TOOLS) setTestSpotState(null); // released builds use real GPS only
         else if (spot) setTestSpotState(JSON.parse(spot));
         step('storage', { state: 'ok' });
       } catch (e) {
@@ -496,6 +498,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const switchMode = useCallback(
     async (m: Mode) => {
       if (m === 'live' && !liveConfigured) return;
+      if (m === 'demo' && !DEV_TOOLS && liveConfigured) return;
       await api.signOut().catch(() => undefined);
       setUser(null);
       setMode(m);

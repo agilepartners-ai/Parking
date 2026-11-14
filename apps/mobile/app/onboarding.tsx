@@ -96,7 +96,7 @@ export default function Onboarding() {
               onPress={askNotifications}
               cta="Allow reminders"
             />
-            {loc === 'denied' ? <Banner tone="warn" title="Location is off" text="You can still try the app with a test spot, and turn location on later in Settings." /> : null}
+            {loc === 'denied' ? <Banner tone="warn" title="Location is off" text="ParkPay cannot find your parking area without it. You can turn it on later in your phone's Settings." /> : null}
             <View style={{ flex: 1 }} />
             <Button title="Start using ParkPay" icon="checkmark" onPress={() => void finishOnboarding()} />
           </Enter>

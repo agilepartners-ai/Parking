@@ -22,6 +22,7 @@ import { Enter, useToast } from '../../src/components/Motion';
 import { confirmDialog, notify } from '../../src/lib/dialog';
 import { askForLeaveWatch, shouldOfferLeaveWatch, startLeaveWatch } from '../../src/lib/background';
 import { useRefresh } from '../../src/lib/useRefresh';
+import { DEV_TOOLS } from '../../src/lib/flags';
 import { errorMessage, minutesUntilClose, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
 
@@ -159,7 +160,7 @@ export default function ParkScreen() {
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: space.xl }}>
             <Skeleton w="100%" h={220} r={0} style={{ position: 'absolute', top: 0 }} />
             <IconBadge name={locating ? 'locate' : 'location-outline'} tone="muted" size={52} />
-            <Text style={[ty.small, { color: t.text, textAlign: 'center' }]}>{locating ? 'Finding your location…' : 'Location is off. Pick a test spot below.'}</Text>
+            <Text style={[ty.small, { color: t.text, textAlign: 'center' }]}>{locating ? 'Finding your location…' : 'Location is off. Turn it on in Settings.'}</Text>
           </View>
         )}
         {/* floating location chip (only over a real map; the list view has its own header) */}
@@ -323,12 +324,12 @@ export default function ParkScreen() {
             <IconBadge name="map-outline" tone="warn" size={56} />
             <Text style={[ty.heading, { color: t.text }]}>{fix ? 'No parking area here' : locating ? 'Finding your location…' : 'Location is off'}</Text>
             <Text style={[ty.body, { color: t.muted, textAlign: 'center' }]}>
-              {fix ? 'You are outside every parking area. Move into a marked area, or pick a Toronto test spot below.' : 'Turn on location, or pick a Toronto test spot below to try the app.'}
+              {fix ? 'You are not inside a ParkPay parking area. The nearest ones are listed above; tap one to see it on the map.' : 'Turn on location so ParkPay can find the parking area you are in.'}
             </Text>
           </Card>
         )}
         {activeSession ? <Nearby items={nearby} hereId={sessionArea?.id ?? null} focusId={focusId} onPick={(id) => setFocusId((cur) => (cur === id ? null : id))} loading={false} /> : null}
-        <TestLocation />
+        {DEV_TOOLS ? <TestLocation /> : null}
       </ScrollView>
       <DurationSheet
         visible={extendOpen}

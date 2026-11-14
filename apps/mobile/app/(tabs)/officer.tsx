@@ -69,7 +69,7 @@ export default function OfficerScreen() {
 
       <Card>
         <SectionTitle>Check a plate</SectionTitle>
-        <Field label="Licence plate" value={plate} onChangeText={(v) => { setPlate(v); setResult(null); }} placeholder="DEMO123" autoCapitalize="characters" autoCorrect={false} />
+        <Field label="Licence plate" value={plate} onChangeText={(v) => { setPlate(v); setResult(null); }} placeholder="ABCD123" autoCapitalize="characters" autoCorrect={false} />
         <ErrorText>{error}</ErrorText>
         <Button title="Check plate" icon="search" onPress={check} loading={checking} disabled={plate.trim().length < 2} />
       </Card>
@@ -93,7 +93,7 @@ export default function OfficerScreen() {
 
       <Card>
         <Spread left={<Label>Paid vehicles within 150 m</Label>} right={<Button variant="ghost" title="Refresh" onPress={load} />} />
-        {nearby.length === 0 ? <Body muted>None nearby. In demo mode, park a car first, or stand at City Hall Lot.</Body> : null}
+        {nearby.length === 0 ? <Body muted>No vehicle has a running session near you.</Body> : null}
         {nearby.map((n) => (
           <Spread key={n.session_id} left={<Body bold>{n.plate}</Body>} right={<Body muted>{n.area_name} · {new Date(n.started_at).toLocaleTimeString()}</Body>} />
         ))}

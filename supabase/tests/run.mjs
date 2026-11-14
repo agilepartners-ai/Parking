@@ -397,6 +397,26 @@ await sys(`insert into parking_session (user_id, account_id, vehicle_id, plate_s
 check('thirty starts in an hour trips the rate limit', /rate_limited/.test((await as(dana, `select start_session($1, $2, $3, 20, 0, 'rl-over')`, [danaVeh.id, CITY.lat, CITY.lng])).error ?? ''));
 check('a retry of an earlier request is still answered', val(await as(dana, `select start_session($1, $2, $3, 20, 0, 'e1') as s`, [danaVeh.id, CITY.lat, CITY.lng]), 's')?.id === ex.id);
 
+// ---- 7f. people and roles ------------------------------------------------------------------
+console.log('\npeople and roles');
+const OP_A = '00000000-0000-4000-8000-0000000000a0';
+check('driver cannot list staff', /forbidden/.test((await as(alice, `select operator_staff()`)).error ?? ''));
+const omarStaff = val(await as(omar, `select operator_staff() as s`), 's');
+check('operator admin sees own staff only', omarStaff.some((u) => u.email === 'omar@test.dev' && u.is_me) && omarStaff.some((u) => u.role === 'officer') && !omarStaff.some((u) => u.email === 'bob@test.dev'), JSON.stringify(omarStaff.map((u) => u.email)));
+check('platform admin sees all staff', val(await as(paula, `select operator_staff() as s`), 's').some((u) => u.email === 'bob@test.dev'));
+check('operator admin makes a driver an officer', !(await as(omar, `select set_staff_role('dana@test.dev', 'officer')`)).error);
+eq('the officer belongs to that operator', (await sys(`select role, operator_id from app_user where email = 'dana@test.dev'`))[0], { role: 'officer', operator_id: OP_A });
+check('operator admin cannot create another admin', /forbidden/.test((await as(omar, `select set_staff_role('dana@test.dev', 'operator_admin')`)).error ?? ''));
+check('nobody changes their own role', /cannot_change_own_role/.test((await as(omar, `select set_staff_role('omar@test.dev', 'driver')`)).error ?? ''));
+check('operator admin cannot touch another operator\'s people', /user_not_found|forbidden/.test((await as(omar, `select set_staff_role('bob@test.dev', 'driver')`)).error ?? ''));
+check('platform admin role is never granted from the console', /forbidden/.test((await as(paula, `select set_staff_role('dana@test.dev', 'platform_admin')`)).error ?? ''));
+check('platform admin appoints an operator admin', !(await as(paula, `select set_staff_role('dana@test.dev', 'operator_admin', $1)`, [OP_A])).error);
+check('an operator admin cannot remove a fellow admin', /forbidden/.test((await as(omar, `select set_staff_role('dana@test.dev', 'driver')`)).error ?? ''));
+check('staff role without an operator is refused', /operator_required/.test((await as(paula, `select set_staff_role('alice@test.dev', 'officer')`)).error ?? ''));
+check('unknown email is reported', /user_not_found/.test((await as(paula, `select set_staff_role('nobody@test.dev', 'officer', $1)`, [OP_A])).error ?? ''));
+await as(paula, `select set_staff_role('dana@test.dev', 'driver')`);
+eq('back to driver clears the operator link', (await sys(`select role, operator_id from app_user where email = 'dana@test.dev'`))[0], { role: 'driver', operator_id: null });
+
 // ---- 8. account deletion -----------------------------------------------------------------
 console.log('\naccount deletion');
 const carol = await signUp('carol@test.dev', 'Carol');

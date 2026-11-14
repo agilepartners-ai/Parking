@@ -3,7 +3,7 @@ const MESSAGES: Record<string, string> = {
   not_authenticated: 'Please sign in again.',
   forbidden: 'Your account is not allowed to do that.',
   vehicle_not_found: 'That vehicle was not found. Add it under Vehicles first.',
-  no_parking_area: 'There is no parking area at this location. Move into a marked area, or pick a test spot in Account.',
+  no_parking_area: 'There is no parking area at this location. Move into a marked parking area and try again.',
   no_rate_plan: 'This area has no rates set up yet.',
   session_already_active: 'This vehicle already has a running parking session.',
   session_not_active: 'That parking session has already ended.',
