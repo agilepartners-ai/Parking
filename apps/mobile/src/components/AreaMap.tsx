@@ -12,6 +12,11 @@ interface Props {
   lat: number;
   lng: number;
   highlightId?: string | null;
+  /** Where the map should look. null = follow the driver. */
+  focus?: { lat: number; lng: number } | null;
+  /** Bump to snap back to the driver even if their position has not changed. */
+  recenter?: number;
+  onPressArea?: (id: string) => void;
 }
 
 const toCoords = (ring: Position[]) => ring.map(([lng, lat]) => ({ latitude: lat, longitude: lng }));
@@ -40,13 +45,14 @@ export default function AreaMap(props: Props) {
   return mapsAvailable ? <NativeMap {...props} /> : <AreaFallback {...props} />;
 }
 
-function NativeMap({ areas, lat, lng, highlightId }: Props) {
+function NativeMap({ areas, lat, lng, highlightId, focus, recenter, onPressArea }: Props) {
   const t = useTheme();
   const ref = useRef<MapView>(null);
 
+  const at = focus ?? { lat, lng };
   useEffect(() => {
-    ref.current?.animateToRegion({ latitude: lat, longitude: lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }, 400);
-  }, [lat, lng]);
+    ref.current?.animateToRegion({ latitude: at.lat, longitude: at.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }, 400);
+  }, [at.lat, at.lng, recenter]);
 
   return (
     <MapView
@@ -55,6 +61,10 @@ function NativeMap({ areas, lat, lng, highlightId }: Props) {
       style={{ flex: 1 }}
       initialRegion={{ latitude: lat, longitude: lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
       showsUserLocation={false}
+      showsMyLocationButton={false}
+      showsCompass={false}
+      toolbarEnabled={false}
+      mapPadding={{ top: 0, right: 0, bottom: 28, left: 0 }}
       userInterfaceStyle={t.dark ? 'dark' : 'light'}
     >
       {areas
@@ -70,6 +80,8 @@ function NativeMap({ areas, lat, lng, highlightId }: Props) {
                 strokeColor={hot ? t.brand : '#2F6FDE'}
                 fillColor={hot ? 'rgba(11,143,90,0.30)' : 'rgba(47,111,222,0.18)'}
                 strokeWidth={hot ? 3 : 2}
+                tappable={!!onPressArea}
+                onPress={() => onPressArea?.(a.id)}
               />
             );
           });

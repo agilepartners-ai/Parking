@@ -10,6 +10,8 @@ import {
   describeRules,
   formatDuration,
   formatMoney,
+  geometryCenter,
+  haversineMeters,
   type ParkingArea,
 } from '@parkpay/shared';
 import AreaMap, { hasRealMap } from '../../src/components/AreaMap';
@@ -52,13 +54,41 @@ function LiveDot({ color }: { color: string }) {
 export default function ParkScreen() {
   const t = useTheme();
   const router = useRouter();
-  const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, movingFast, startParking, endParking, extendParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable, refreshAll } = useApp();
+  const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, movingFast, startParking, endParking, extendParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable, refreshAll, refreshLocation } = useApp();
   const refreshControl = useRefresh(refreshAll);
   const toast = useToast();
   const [vehicleId, setVehicleId] = useState<string | null>(null);
   const [planned, setPlanned] = useState<number | null>(60);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [extendOpen, setExtendOpen] = useState(false);
+  // What the map looks at: null follows the driver; tapping a nearby area moves the map there without moving the driver.
+  const [focusId, setFocusId] = useState<string | null>(null);
+  const [recenter, setRecenter] = useState(0);
+  const [locatingNow, setLocatingNow] = useState(false);
+
+  const nearby = useMemo(() => {
+    if (!fix) return [];
+    return areas
+      .filter((a) => a.level === 3)
+      .map((a) => {
+        const c = geometryCenter(a.geometry);
+        return { a, c, d: haversineMeters(fix.lat, fix.lng, c.lat, c.lng) };
+      })
+      .sort((x, y) => x.d - y.d)
+      .slice(0, 8);
+  }, [areas, fix?.lat, fix?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+  const focus = focusId ? nearby.find((n) => n.a.id === focusId)?.c ?? null : null;
+
+  async function locateMe() {
+    setFocusId(null);
+    setLocatingNow(true);
+    try {
+      await refreshLocation();
+    } finally {
+      setLocatingNow(false);
+      setRecenter((n) => n + 1);
+    }
+  }
   const now = useNow(1000, !!activeSession);
 
   useEffect(() => {
@@ -124,7 +154,7 @@ export default function ParkScreen() {
       {/* map */}
       <SafeAreaView edges={['top']} style={{ height: 300 + 0, backgroundColor: t.border }}>
         {fix ? (
-          <AreaMap areas={areas} lat={fix.lat} lng={fix.lng} highlightId={shown?.id} />
+          <AreaMap areas={areas} lat={fix.lat} lng={fix.lng} highlightId={focusId ?? shown?.id} focus={focus} recenter={recenter} onPressArea={setFocusId} />
         ) : (
           <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10, padding: space.xl }}>
             <Skeleton w="100%" h={220} r={0} style={{ position: 'absolute', top: 0 }} />
@@ -135,12 +165,24 @@ export default function ParkScreen() {
         {/* floating location chip (only over a real map; the list view has its own header) */}
         {hasRealMap ? <View pointerEvents="none" style={{ position: 'absolute', top: space.sm + 44, left: space.lg, right: space.lg, flexDirection: 'row' }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: t.card, borderRadius: radius.pill, paddingHorizontal: 12, paddingVertical: 8, shadowColor: t.shadow, shadowOpacity: 0.15, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 3 }}>
-            <Ionicons name={testSpot ? 'flask' : 'navigate'} size={14} color={t.brand} />
-            <Text style={{ color: t.text, fontWeight: '700', fontSize: 13 }} numberOfLines={1}>
-              {testSpot ? testSpot.name : fix ? 'Real GPS' : 'Locating'}
+            <Ionicons name={currentArea ? 'navigate' : fix ? 'navigate-outline' : 'locate'} size={14} color={t.brand} />
+            <Text style={{ color: t.text, fontWeight: '700', fontSize: 13, flexShrink: 1 }} numberOfLines={1}>
+              {currentArea ? currentArea.name : fix ? 'No parking area here' : 'Finding you…'}
             </Text>
+            {testSpot ? <Text style={{ color: t.muted, fontSize: 11, fontWeight: '700' }}>TEST SPOT</Text> : null}
           </View>
         </View> : null}
+        {/* locate me: fresh GPS fix, map back on the driver */}
+        {fix ? (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Find my location"
+            onPress={() => void locateMe()}
+            style={({ pressed }) => ({ position: 'absolute', right: space.lg, bottom: space.xl + 14, width: 48, height: 48, borderRadius: 24, backgroundColor: t.card, alignItems: 'center', justifyContent: 'center', shadowColor: t.shadow, shadowOpacity: 0.18, shadowRadius: 8, shadowOffset: { width: 0, height: 2 }, elevation: 4, transform: [{ scale: pressed ? 0.94 : 1 }] })}
+          >
+            <Ionicons name={locatingNow ? 'sync' : focusId ? 'locate-outline' : 'locate'} size={22} color={t.brand} />
+          </Pressable>
+        ) : null}
       </SafeAreaView>
 
       {/* sheet */}
@@ -160,6 +202,8 @@ export default function ParkScreen() {
           <Banner tone="warn" title="Can't reach the server" text="Check your connection. Anything you do now may not save." />
         ) : null}
         {areasError ? <Banner tone="danger" title="Could not load parking areas" text={areasError} /> : null}
+
+        {!activeSession ? <Nearby items={nearby} hereId={currentArea?.id ?? null} focusId={focusId} onPick={(id) => setFocusId((cur) => (cur === id ? null : id))} loading={!!fix && !areasLoaded} /> : null}
 
         {activeSession ? (
           <Enter key="live" style={{ gap: space.md }}>
@@ -283,6 +327,7 @@ export default function ParkScreen() {
             </Text>
           </Card>
         )}
+        {activeSession ? <Nearby items={nearby} hereId={sessionArea?.id ?? null} focusId={focusId} onPick={(id) => setFocusId((cur) => (cur === id ? null : id))} loading={false} /> : null}
         <TestLocation />
       </ScrollView>
       <DurationSheet
@@ -304,6 +349,45 @@ export default function ParkScreen() {
           setSheetOpen(false);
         }}
       />
+    </View>
+  );
+}
+
+const dist = (m: number) => (m < 1000 ? `${Math.max(10, Math.round(m / 10) * 10)} m` : `${(m / 1000).toFixed(1)} km`);
+
+/** Nearest parking areas, closest first. Tapping one shows it on the map. */
+function Nearby({ items, hereId, focusId, onPick, loading }: { items: { a: ParkingArea; d: number }[]; hereId: string | null; focusId: string | null; onPick: (id: string) => void; loading: boolean }) {
+  const t = useTheme();
+  if (!loading && items.length === 0) return null;
+  return (
+    <View style={{ gap: space.sm }}>
+      <Text accessibilityRole="header" style={{ color: t.text, fontSize: 15, fontWeight: '800' }}>Nearby parking</Text>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginHorizontal: -space.lg }} contentContainerStyle={{ paddingHorizontal: space.lg, gap: 10 }}>
+        {loading && items.length === 0
+          ? [0, 1, 2].map((i) => <Skeleton key={i} w={176} h={84} r={radius.card} />)
+          : items.map(({ a, d }) => {
+              const here = a.id === hereId;
+              const on = a.id === focusId;
+              const rate = currentRateCents(a.plan, a.timezone, Date.now());
+              return (
+                <Pressable
+                  key={a.id}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: on }}
+                  accessibilityLabel={`${a.name}, ${here ? 'you are here' : dist(d) + ' away'}, ${rate === 0 ? 'free right now' : formatMoney(rate, a.plan.currency) + ' per hour'}. Show on map.`}
+                  onPress={() => onPick(a.id)}
+                  style={({ pressed }) => ({ width: 176, gap: 6, padding: 12, borderRadius: radius.card, backgroundColor: t.card, borderWidth: 1.5, borderColor: on ? t.brand : here ? t.brandSoft : t.border, transform: [{ scale: pressed ? 0.97 : 1 }] })}
+                >
+                  <Row style={{ gap: 6 }}>
+                    <Ionicons name={here ? 'navigate' : 'location-outline'} size={14} color={here ? t.brand : t.muted} />
+                    <Text style={{ color: here ? t.brand : t.muted, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{here ? 'You are here' : dist(d)}</Text>
+                  </Row>
+                  <Text numberOfLines={1} style={{ color: t.text, fontSize: 15, fontWeight: '700' }}>{a.name}</Text>
+                  <Text style={{ color: rate === 0 ? t.brand : t.text, fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{rate === 0 ? 'Free right now' : `${formatMoney(rate, a.plan.currency)} / h`}</Text>
+                </Pressable>
+              );
+            })}
+      </ScrollView>
     </View>
   );
 }
