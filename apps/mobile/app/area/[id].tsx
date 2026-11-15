@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useNavigation, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { ActivityIndicator, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -71,6 +71,19 @@ export default function AreaEditor() {
   const report = useMemo(() => (ed.vertices.length >= 3 ? analyzeShape(ed.vertices, form.level) : null), [ed.vertices, form.level]);
   const parts = verticesOf(area?.geometry);
 
+  // Leaving with an unsaved outline asks first (back button, back gesture or the header arrow).
+  type LeaveEvent = { preventDefault(): void; data: { action: unknown } };
+  const navigation = useNavigation() as unknown as { addListener(ev: 'beforeRemove', cb: (e: LeaveEvent) => void): () => void; dispatch(a: unknown): void };
+  const dirty = edited && !busy;
+  const leaving = useRef(false); // set before our own navigation (after save or archive), which never needs the prompt
+  useEffect(() => {
+    return navigation.addListener('beforeRemove', (e) => {
+      if (!dirty || leaving.current) return;
+      e.preventDefault();
+      void confirmDialog('Discard changes?', 'The outline has changes that are not saved.', 'Discard', true).then((ok) => { if (ok) navigation.dispatch(e.data.action); });
+    });
+  }, [navigation, dirty]);
+
   // server check (authoritative for overlaps with other operators), debounced
   useEffect(() => {
     if (!geometry) { setCheck(null); return; }
@@ -99,7 +112,7 @@ export default function AreaEditor() {
       setArea(saved); setForm(fromArea(saved));
       dispatch({ type: 'load', vertices: verticesOf(saved.geometry).vertices });
       notify('Saved', saved.active ? 'It is published, so drivers see the change right away.' : 'Saved as a draft. Drivers cannot see it until you publish.');
-      if (isNew) router.replace(`/area/${saved.id}`);
+      if (isNew) { leaving.current = true; router.replace(`/area/${saved.id}`); }
     } catch (e) { notify('Could not save', adminError(e)); } finally { setBusy(false); }
   }
 
@@ -118,7 +131,7 @@ export default function AreaEditor() {
     const ok = await confirmDialog('Archive area?', `"${area.name}" disappears from drivers and from your list. Receipts and history are kept. This cannot be undone in the app.`, 'Archive', true);
     if (!ok) return;
     setBusy(true);
-    try { await adminApi.archive(area.id); router.back(); } catch (e) { notify('Could not archive', adminError(e)); } finally { setBusy(false); }
+    try { await adminApi.archive(area.id); leaving.current = true; router.back(); } catch (e) { notify('Could not archive', adminError(e)); } finally { setBusy(false); }
   }
 
   async function search() {
