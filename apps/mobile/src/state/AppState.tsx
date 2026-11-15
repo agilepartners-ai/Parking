@@ -23,9 +23,17 @@ import { startLeaveWatch, stopLeaveWatch } from '../lib/background';
 import { FAST_MPS, stopArrivalGeofences, syncArrivalGeofences } from '../lib/reminders';
 import { withTimeout } from '../lib/boot';
 import { DEV_TOOLS } from '../lib/flags';
+import { IS_ADMIN_APP, IS_STAFF_APP } from '../lib/variant';
 import { cancelSessionReminders, notifyNow, scheduleSessionReminders } from '../lib/notify';
 
 export type Mode = 'live' | 'demo';
+
+/** A new GPS reading worth re-rendering for: moved 3 m or more, accuracy changed by 10 m+, or started/stopped moving. */
+function meaningfulChange(a: Fix, b: Fix): boolean {
+  if (haversineMeters(a.lat, a.lng, b.lat, b.lng) >= 3) return true;
+  if (Math.abs((a.accuracy ?? 0) - (b.accuracy ?? 0)) >= 10) return true;
+  return ((a.speed ?? 0) > 1) !== ((b.speed ?? 0) > 1);
+}
 
 export interface Fix {
   lat: number;
@@ -151,9 +159,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const lastPing = useRef(0);
   const lastAreaFetch = useRef<{ lat: number; lng: number } | null>(null);
 
-  const fix: Fix | null = testSpot
-    ? { lat: testSpot.lat, lng: testSpot.lng, accuracy: 5, speed: testSpot.speed ?? 0, source: 'test', label: testSpot.name }
-    : gps;
+  const fix: Fix | null = useMemo(
+    () => (testSpot ? { lat: testSpot.lat, lng: testSpot.lng, accuracy: 5, speed: testSpot.speed ?? 0, source: 'test', label: testSpot.name } : gps),
+    [testSpot, gps],
+  );
 
   // ---- boot: restore mode, test spot, user ------------------------------------------------
   // Every step has a time limit, and a 15 s watchdog opens the app regardless: the start screen can never hang.
@@ -221,7 +230,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---- real GPS (only when not using a test spot) ----------------------------------------
   useEffect(() => {
-    if (testSpot || !user || onboarding || Platform.OS === 'web') return; // during sign-up we explain first, then ask
+    // during sign-up we explain first, then ask; the admin app reads the position only when asked ("my location")
+    if (testSpot || !user || onboarding || Platform.OS === 'web' || IS_ADMIN_APP) return;
     let sub: Location.LocationSubscription | undefined;
     let cancelled = false;
     (async () => {
@@ -241,7 +251,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         { accuracy: Location.Accuracy.Balanced, timeInterval: 5000, distanceInterval: 8 },
         (p) => {
           if (cancelled) return;
-          setGps({ lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, speed: p.coords.speed, source: 'gps' });
+          const next: Fix = { lat: p.coords.latitude, lng: p.coords.longitude, accuracy: p.coords.accuracy, speed: p.coords.speed, source: 'gps' };
+          // A phone standing still still reports a new reading every few seconds. Keep the same object (so nothing
+          // re-renders) unless it moved, its accuracy changed noticeably, or it started or stopped moving.
+          setGps((cur) => (cur && !meaningfulChange(cur, next) ? cur : next));
         },
       );
     })().catch(() => setLocationDenied(true));
@@ -329,34 +342,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       void stopArrivalGeofences();
       return;
     }
+    if (IS_STAFF_APP) return; // vehicles and a running session are driver data; staff apps never show them
     refreshVehicles().catch(() => undefined);
     refreshSession().catch(() => undefined);
   }, [user?.id, api]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // The latest callbacks, read by the timer and the foreground listener below. Those are set up once per sign-in;
+  // depending on the callbacks directly would tear them down and rebuild them on every GPS reading.
+  const latest = useRef({ refreshAreas, refreshUser, refreshSession });
+  latest.current = { refreshAreas, refreshUser, refreshSession };
+
   // Newly published or unpublished areas reach an open app within a minute, without the driver doing anything.
+  // (The admin app has no driver map; it loads areas on its own screens.)
   useEffect(() => {
-    if (!user) return;
+    if (!user?.id || IS_ADMIN_APP) return;
     const id = setInterval(() => {
-      if (RNAppState.currentState === 'active') void refreshAreas();
+      if (RNAppState.currentState === 'active') void latest.current.refreshAreas();
     }, 60_000);
     return () => clearInterval(id);
-  }, [user, refreshAreas]);
+  }, [user?.id]);
 
   // refresh the profile when the app comes back to the foreground (role may have changed server-side)
   useEffect(() => {
+    if (!user?.id) return;
     const s = RNAppState.addEventListener('change', (st) => {
-      if (st === 'active' && user) {
-        refreshUser().catch(() => undefined);
-        refreshSession().catch(() => undefined);
-        void refreshAreas();
-      }
+      if (st !== 'active') return;
+      latest.current.refreshUser().catch(() => undefined);
+      if (!IS_STAFF_APP) latest.current.refreshSession().catch(() => undefined);
+      if (!IS_ADMIN_APP) void latest.current.refreshAreas();
     });
     return () => s.remove();
-  }, [user, refreshUser, refreshSession, refreshAreas]);
+  }, [user?.id]);
 
   // areas around the current fix (refetch when we moved > 1 km)
   useEffect(() => {
-    if (!user || !fix) return;
+    if (!user || !fix || IS_ADMIN_APP) return;
     const last = lastAreaFetch.current;
     if (last && haversineMeters(last.lat, last.lng, fix.lat, fix.lng) < 1000 && areas.length) return;
     lastAreaFetch.current = { lat: fix.lat, lng: fix.lng };
@@ -474,7 +494,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // ---- arrival reminders: keep the phone's geofences on the nearest areas ---------------
   useEffect(() => {
-    if (!user || !fix || fix.source !== 'gps' || !areas.length) return;
+    if (!user || !fix || fix.source !== 'gps' || !areas.length || IS_STAFF_APP) return; // arrival reminders are for drivers
     void syncArrivalGeofences(areas, fix.lat, fix.lng);
   }, [areas, user?.id, lastAreaFetch.current?.lat, lastAreaFetch.current?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -586,7 +606,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setUser(null);
   }, [api]);
 
-  const value: Ctx = {
+  // One object per real change: a new object on every render made every screen (and its map) redraw.
+  const value: Ctx = useMemo(
+    () => ({
     ready,
     bootSteps,
     serverReachable,
@@ -630,7 +652,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     extendParking,
     requestPasswordReset,
     deleteAccount,
-  };
+      }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [activeSession, api, areas, areasError, areasLoaded, bootSteps, busy, currentArea, deleteAccount, endParking, extendParking, finishOnboarding, fix, leftArea, locationDenied, mode, movingFast, onboarding, ready, refreshAll, refreshLocation, refreshSession, refreshUser, refreshVehicles, requestPasswordReset, serverReachable, sessionArea, sessionLoaded, setRole, setTestSpot, signIn, signOut, signUp, simulateLeaving, skipBoot, startParking, switchMode, testSpot, user, vehicles, vehiclesLoaded],
+  );
   return <C.Provider value={value}>{children}</C.Provider>;
 }
 

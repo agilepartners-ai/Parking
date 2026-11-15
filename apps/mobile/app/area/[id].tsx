@@ -150,11 +150,17 @@ export default function AreaEditor() {
     if (f) mapRef.current?.centerOn(f.lat, f.lng); else setHint('Your location is not available. Allow location for this app.');
   }
 
+  // Stable inputs for the memoised map: it redraws only when its data really changes.
+  const others = useMemo(() => (areas ?? []).filter((a) => a.id !== area?.id), [areas, area?.id]);
+  const startRef = useRef<{ lat: number; lng: number } | null>(null);
+  if (!startRef.current && areas) {
+    const first = verticesOf(others[0]?.geometry).vertices[0];
+    startRef.current = fix ?? (first ? { lat: first[1], lng: first[0] } : { lat: 43.6526, lng: -79.3832 });
+  }
+
   if (loadError) return <SafeAreaView style={{ flex: 1, backgroundColor: t.bg, padding: space.lg, gap: space.md }}><Banner tone="danger" title={loadError} /><Button title="Back" variant="secondary" onPress={() => router.back()} /></SafeAreaView>;
   if (!areas || (!isNew && !area)) return <SafeAreaView style={{ flex: 1, backgroundColor: t.bg, alignItems: 'center', justifyContent: 'center' }}><ActivityIndicator color={t.brand} /></SafeAreaView>;
 
-  const others = areas.filter((a) => a.id !== area?.id);
-  const start = fix ?? (others[0] ? { lat: verticesOf(others[0].geometry).vertices[0]?.[1] ?? 43.6526, lng: verticesOf(others[0].geometry).vertices[0]?.[0] ?? -79.3832 } : { lat: 43.6526, lng: -79.3832 });
   const Tool = ({ icon, label, onPress, on, disabled, tone }: { icon: keyof typeof Ionicons.glyphMap; label: string; onPress: () => void; on?: boolean; disabled?: boolean; tone?: 'danger' }) => (
     <Pressable onPress={onPress} disabled={disabled} accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled, selected: on }}
       style={({ pressed }) => ({ flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 11, height: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: on ? t.brand : t.border, backgroundColor: on ? t.brandSoft : t.card, opacity: disabled ? 0.4 : pressed ? 0.7 : 1, transform: [{ scale: pressed ? 0.97 : 1 }] })}>
@@ -192,7 +198,7 @@ export default function AreaEditor() {
       {/* map */}
       <View style={{ flex: 1 }}>
         <AreaEditorMap ref={mapRef} others={others} state={ed} dispatch={dispatch} level={form.level} snapping={snapping} squareCorners={square}
-          satellite={satellite} selected={selected} onSelect={setSelected} initial={start} onHint={setHint} />
+          satellite={satellite} selected={selected} onSelect={setSelected} initial={startRef.current ?? { lat: 43.6526, lng: -79.3832 }} onHint={setHint} />
         <View style={{ position: 'absolute', top: 10, left: 10, right: 10, flexDirection: 'row', gap: 8 }}>
           <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', backgroundColor: t.card, borderRadius: radius.sm, borderWidth: 1, borderColor: t.border, paddingHorizontal: 10, height: 42 }}>
             <Ionicons name="search" size={16} color={t.muted} />

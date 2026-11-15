@@ -1,6 +1,6 @@
 import { useFocusEffect } from 'expo-router';
-import React, { useCallback, useState } from 'react';
-import { formatMoney, type Citation, type NearbyVehicle, type PlateCheck } from '@parkpay/shared';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { formatMoney, haversineMeters, type Citation, type NearbyVehicle, type PlateCheck } from '@parkpay/shared';
 import TestLocation from '../../src/components/TestLocation';
 import { Body, Button, Card, Chip, ErrorText, Field, Label, Pill, Row, Screen, SectionTitle, Spread } from '../../src/components/ui';
 import { notify } from '../../src/lib/dialog';
@@ -22,17 +22,29 @@ export default function OfficerScreen() {
   const [fine, setFine] = useState(FINES[0]);
   const [issuing, setIssuing] = useState(false);
 
+  // Nearby paid vehicles depend on where the officer stands; recent tickets do not. Reload nearby only after a real
+  // move (25 m) and tickets only when the screen opens or after issuing one, instead of both on every GPS reading.
+  const fixRef = useRef(fix);
+  fixRef.current = fix;
+  const lastNearby = useRef<{ lat: number; lng: number } | null>(null);
+  const loadNearby = useCallback(async () => {
+    const f = fixRef.current;
+    if (!f) return;
+    lastNearby.current = { lat: f.lat, lng: f.lng };
+    try { setNearby(await api.officerNearby(f.lat, f.lng, 150)); } catch (e) { setError(errorMessage(e)); }
+  }, [api]);
   const load = useCallback(async () => {
-    if (!fix) return;
-    try {
-      setNearby(await api.officerNearby(fix.lat, fix.lng, 150));
-      setCites(await api.officerCitations());
-    } catch (e) {
-      setError(errorMessage(e));
-    }
-  }, [api, fix?.lat, fix?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
+    await loadNearby();
+    try { setCites(await api.officerCitations()); } catch (e) { setError(errorMessage(e)); }
+  }, [api, loadNearby]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
+  useEffect(() => {
+    if (!fix) return;
+    const l = lastNearby.current;
+    if (l && haversineMeters(l.lat, l.lng, fix.lat, fix.lng) < 25) return;
+    void loadNearby();
+  }, [fix?.lat, fix?.lng, loadNearby]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function check() {
     setError(null);

@@ -1,9 +1,9 @@
 import * as Application from 'expo-application';
 import Constants, { ExecutionEnvironment } from 'expo-constants';
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useMemo, useRef } from 'react';
 import { Platform } from 'react-native';
 import MapView, { Marker, Polygon, PROVIDER_DEFAULT } from 'react-native-maps';
-import type { ParkingArea, Position } from '@parkpay/shared';
+import { haversineMeters, type ParkingArea, type Position } from '@parkpay/shared';
 import { useTheme } from '../theme';
 import AreaFallback from './AreaFallback';
 
@@ -45,29 +45,43 @@ export default function AreaMap(props: Props) {
   return mapsAvailable ? <NativeMap {...props} /> : <AreaFallback {...props} />;
 }
 
-function NativeMap({ areas, lat, lng, highlightId, focus, recenter, onPressArea }: Props) {
+const NativeMap = React.memo(function NativeMap({ areas, lat, lng, highlightId, focus, recenter, onPressArea }: Props) {
   const t = useTheme();
   const ref = useRef<MapView>(null);
+  // Follow the driver only until they move the map themselves; the locate button (recenter) turns following back on.
+  const following = useRef(true);
+  const centred = useRef<{ lat: number; lng: number } | null>(null);
+  const pressRef = useRef(onPressArea);
+  pressRef.current = onPressArea;
 
-  const at = focus ?? { lat, lng };
+  // Move the camera, keeping the zoom the driver chose (animateToRegion would reset it every time).
+  const moveTo = (la: number, ln: number) => {
+    centred.current = { lat: la, lng: ln };
+    ref.current?.animateCamera({ center: { latitude: la, longitude: ln } }, { duration: 450 });
+  };
+
+  // explicit: an area picked in the list, or the locate button
   useEffect(() => {
-    ref.current?.animateToRegion({ latitude: at.lat, longitude: at.lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }, 400);
-  }, [at.lat, at.lng, recenter]);
+    if (focus) { following.current = false; moveTo(focus.lat, focus.lng); return; }
+    following.current = true;
+    moveTo(lat, lng);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.lat, focus?.lng, recenter]);
 
-  return (
-    <MapView
-      ref={ref}
-      provider={PROVIDER_DEFAULT}
-      style={{ flex: 1 }}
-      initialRegion={{ latitude: lat, longitude: lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }}
-      showsUserLocation={false}
-      showsMyLocationButton={false}
-      showsCompass={false}
-      toolbarEnabled={false}
-      mapPadding={{ top: 0, right: 0, bottom: 28, left: 0 }}
-      userInterfaceStyle={t.dark ? 'dark' : 'light'}
-    >
-      {areas
+  // implicit: the driver walked or drove. Only re-centre while following and after a real move (15 m),
+  // so GPS jitter never shakes the map.
+  useEffect(() => {
+    if (!following.current || focus) return;
+    const c = centred.current;
+    if (c && haversineMeters(c.lat, c.lng, lat, lng) < 15) return;
+    moveTo(lat, lng);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [lat, lng]);
+
+  // Polygons depend only on the areas and the highlight, never on the position: they are not rebuilt per GPS reading.
+  const polygons = useMemo(
+    () =>
+      areas
         .filter((a) => a.level === 3)
         .flatMap((a) => {
           const polys = a.geometry.type === 'Polygon' ? [a.geometry.coordinates] : a.geometry.coordinates;
@@ -80,13 +94,32 @@ function NativeMap({ areas, lat, lng, highlightId, focus, recenter, onPressArea 
                 strokeColor={hot ? t.brand : '#2F6FDE'}
                 fillColor={hot ? 'rgba(11,143,90,0.30)' : 'rgba(47,111,222,0.18)'}
                 strokeWidth={hot ? 3 : 2}
-                tappable={!!onPressArea}
-                onPress={() => onPressArea?.(a.id)}
+                tappable
+                onPress={() => pressRef.current?.(a.id)}
               />
             );
           });
-        })}
-      <Marker coordinate={{ latitude: lat, longitude: lng }} title="You are here" pinColor={t.brand} />
+        }),
+    [areas, highlightId, t.brand],
+  );
+  const initial = useRef({ latitude: lat, longitude: lng, latitudeDelta: 0.006, longitudeDelta: 0.006 }).current;
+
+  return (
+    <MapView
+      ref={ref}
+      provider={PROVIDER_DEFAULT}
+      style={{ flex: 1 }}
+      initialRegion={initial}
+      onPanDrag={() => { following.current = false; }}
+      showsUserLocation={false}
+      showsMyLocationButton={false}
+      showsCompass={false}
+      toolbarEnabled={false}
+      mapPadding={{ top: 0, right: 0, bottom: 28, left: 0 }}
+      userInterfaceStyle={t.dark ? 'dark' : 'light'}
+    >
+      {polygons}
+      <Marker coordinate={{ latitude: lat, longitude: lng }} title="You are here" pinColor={t.brand} tracksViewChanges={false} />
     </MapView>
   );
-}
+});
