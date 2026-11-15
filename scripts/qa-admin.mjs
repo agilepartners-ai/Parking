@@ -35,6 +35,7 @@ if (cmd === 'create') {
   const db = await connect();
   const T = `select id from app_user where email like 'qa-%@parkpay.test'`;
   await db.query(`delete from audit_log where actor_user_id in (${T})`);
+  await db.query(`delete from account where owner_user_id in (${T})`); // personal account made at sign-up
   await db.query(`delete from app_user where id in (${T})`);
   await db.end();
   const { data } = await svc.auth.admin.listUsers({ perPage: 1000 });
