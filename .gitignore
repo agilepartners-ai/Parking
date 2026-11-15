@@ -39,3 +39,5 @@ demo-accounts.txt
 
 # local build outputs
 release-artifacts/
+
+admin-account.txt

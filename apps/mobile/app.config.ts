@@ -1,8 +1,9 @@
 import type { ExpoConfig } from 'expo/config';
 
 // Working name. Change APP_NAME / slug / bundle ids in one place when the product is named.
-const APP_NAME = 'ParkPay';
-const ID = 'com.parkpay.app'; // placeholder: pick the final reverse-domain id BEFORE the first store upload (cannot change later)
+const OFFICER = process.env.APP_VARIANT === 'officer'; // ParkPay Enforce, the officer app (same code)
+const APP_NAME = OFFICER ? 'ParkPay Enforce' : 'ParkPay';
+const ID = OFFICER ? 'com.parkpay.enforce' : 'com.parkpay.app'; // placeholder: pick the final reverse-domain id BEFORE the first store upload (cannot change later)
 
 // Google Maps key: from the build environment (EAS secret GOOGLE_MAPS_API_KEY), or for local builds from the
 // repo-root .env (gitignored; accepts GOOGLE_MAPS_API_KEY or Maps_key). It is never written into the repository.
@@ -26,7 +27,7 @@ const config: ExpoConfig = {
   name: APP_NAME,
   slug: 'parkpay',
   owner: 'chopra.yatharth',
-  scheme: 'parkpay',
+  scheme: OFFICER ? 'parkpay-enforce' : 'parkpay',
   version: '0.2.0',
   orientation: 'portrait',
   // Over-the-air updates: JavaScript-only fixes reach installed apps without a new store build (and without using EAS build credits).
@@ -86,7 +87,7 @@ const config: ExpoConfig = {
     ],
   ],
   experiments: { typedRoutes: false },
-  extra: { eas: { projectId: 'ddf560e5-7102-44bf-9804-e384220499b1' }, hasMapsKey: !!MAPS_KEY },
+  extra: { eas: { projectId: 'ddf560e5-7102-44bf-9804-e384220499b1' }, hasMapsKey: !!MAPS_KEY, variant: OFFICER ? 'officer' : 'driver' },
 };
 
 export default config;

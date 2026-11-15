@@ -59,3 +59,11 @@ td, .big { font-variant-numeric: tabular-nums; }
 .linkish { background: none; border: 0; padding: 4px 0; color: var(--danger); cursor: pointer; font-size: 13px; text-align: left; text-decoration: underline; text-underline-offset: 3px; }
 .filebtn { text-align: center; text-transform: none; letter-spacing: 0; font-size: inherit; margin: 0; }
 .filebtn input { display: none; }
+@media (max-width: 720px) {
+  header.top { flex-wrap: wrap; gap: 8px; padding: 10px 14px; }
+  header.top nav { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  header.top nav button { white-space: nowrap; padding: 8px 10px; }
+  main { padding: 14px; }
+  .map { height: 360px; }
+  .row > * { min-width: 120px; }
+}

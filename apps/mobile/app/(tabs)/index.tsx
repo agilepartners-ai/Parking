@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { Redirect, useRouter } from 'expo-router';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Animated, Easing, Linking, Pressable, ScrollView, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -23,6 +23,7 @@ import { confirmDialog, notify } from '../../src/lib/dialog';
 import { askForLeaveWatch, shouldOfferLeaveWatch, startLeaveWatch } from '../../src/lib/background';
 import { useRefresh } from '../../src/lib/useRefresh';
 import { DEV_TOOLS } from '../../src/lib/flags';
+import { IS_OFFICER_APP } from '../../src/lib/variant';
 import { errorMessage, minutesUntilClose, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
 
@@ -52,7 +53,11 @@ function LiveDot({ color }: { color: string }) {
   );
 }
 
-export default function ParkScreen() {
+export default function ParkTab() {
+  return IS_OFFICER_APP ? <Redirect href="/officer" /> : <ParkScreen />;
+}
+
+function ParkScreen() {
   const t = useTheme();
   const router = useRouter();
   const { fix, areas, areasLoaded, areasError, sessionLoaded, currentArea, vehicles, vehiclesLoaded, activeSession, sessionArea, leftArea, movingFast, startParking, endParking, extendParking, busy, simulateLeaving, locationDenied, testSpot, mode, serverReachable, refreshAll, refreshLocation } = useApp();

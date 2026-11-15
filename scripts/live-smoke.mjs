@@ -1,16 +1,32 @@
 // End-to-end smoke test of the DRIVER flow against the real project, through the same public API the app uses
-// (publishable key + a signed-in user, row-level security on). Uses the demo driver from ./demo-accounts.txt.
-// It leaves one short, free, completed session in that demo account's history.
+// (publishable key + a signed-in user, row-level security on). It creates a throwaway driver account,
+// runs the flow, then deletes that account and everything it made, so the live project stays clean.
 //   node scripts/live-smoke.mjs
+import { randomBytes } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
+import { connect } from '../supabase/db.mjs'; // also loads ./.env (secret key, server side only)
 
 const root = new URL('..', import.meta.url);
 const read = (p) => readFileSync(new URL(p, root), 'utf8');
 const env = Object.fromEntries(read('apps/mobile/.env').split(/\r?\n/).filter((l) => l.includes('=')).map((l) => [l.slice(0, l.indexOf('=')).trim(), l.slice(l.indexOf('=') + 1).trim()]));
-const line = read('demo-accounts.txt').split(/\r?\n/).find((l) => l.startsWith('driver'));
-if (!line) throw new Error('No driver line in demo-accounts.txt. Run: node scripts/create-demo-users.mjs');
-const [, email, password] = line.trim().split(/\s+/);
+
+const svc = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
+const email = `smoke-${Date.now()}@parkpay.test`;
+const password = randomBytes(12).toString('base64url');
+const created = await svc.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: 'Smoke Test' } });
+if (created.error) throw created.error;
+async function cleanup() {
+  const db = await connect();
+  const T = `select id from app_user where email = '${email}'`;
+  await db.query(`delete from payment where session_id in (select id from parking_session where user_id in (${T}))`);
+  await db.query(`delete from parking_session where user_id in (${T})`);
+  await db.query(`delete from audit_log where actor_user_id in (${T})`);
+  await db.query(`delete from account where owner_user_id in (${T})`);
+  await db.query(`delete from app_user where id in (${T})`);
+  await db.end();
+  await svc.auth.admin.deleteUser(created.data.user.id);
+}
 
 const sb = createClient(env.EXPO_PUBLIC_SUPABASE_URL, env.EXPO_PUBLIC_SUPABASE_KEY, { auth: { persistSession: false } });
 let failed = 0;
@@ -28,8 +44,8 @@ const anon = await rpc('list_areas', { p_lat: CITY.lat, p_lng: CITY.lng, p_radiu
 ok('signed-out caller is refused', !!anon.error, JSON.stringify(anon).slice(0, 120));
 
 const { error: signErr } = await sb.auth.signInWithPassword({ email, password });
-ok('demo driver signs in', !signErr, signErr?.message);
-if (signErr) process.exit(1);
+ok('throwaway driver signs in', !signErr, signErr?.message);
+if (signErr) { await cleanup(); process.exit(1); }
 
 const profile = await rpc('my_profile');
 ok('profile loads with role driver', profile.data?.role === 'driver', JSON.stringify(profile));
@@ -85,5 +101,7 @@ const others = await sb.from('parking_session').select('user_id');
 ok('driver sees only own sessions', (others.data ?? []).every((r) => r.user_id === profile.data.id));
 
 await sb.auth.signOut();
+await cleanup();
+console.log('  (throwaway account and its data removed)');
 console.log(failed ? `\n${failed} FAILED` : '\nlive driver flow: all checks passed');
 process.exit(failed ? 1 : 0);

@@ -4,6 +4,7 @@ import { formatMoney, type Citation, type NearbyVehicle, type PlateCheck } from 
 import TestLocation from '../../src/components/TestLocation';
 import { Body, Button, Card, Chip, ErrorText, Field, Label, Pill, Row, Screen, SectionTitle, Spread } from '../../src/components/ui';
 import { notify } from '../../src/lib/dialog';
+import { DEV_TOOLS } from '../../src/lib/flags';
 import { errorMessage, useApp } from '../../src/state/AppState';
 
 const REASONS = ['No valid payment', 'Exceeded maximum stay', 'Paid for a different area'];
@@ -65,7 +66,7 @@ export default function OfficerScreen() {
   const tone = result?.result === 'valid' ? 'brand' : result?.result === 'wrong_area' ? 'warn' : 'danger';
 
   return (
-    <Screen title="Officer" subtitle={currentArea ? `You are in ${currentArea.name}` : 'You are outside every parking area'}>
+    <Screen title="Enforce" subtitle={currentArea ? `You are in ${currentArea.name}` : 'You are outside every parking area'}>
 
       <Card>
         <SectionTitle>Check a plate</SectionTitle>
@@ -106,7 +107,7 @@ export default function OfficerScreen() {
           <Spread key={c.id} left={<Body bold>{c.plate}</Body>} right={<Body muted>{formatMoney(c.fine_cents, c.currency)} · {c.reason}</Body>} />
         ))}
       </Card>
-      <TestLocation />
+      {DEV_TOOLS ? <TestLocation /> : null}
     </Screen>
   );
 }

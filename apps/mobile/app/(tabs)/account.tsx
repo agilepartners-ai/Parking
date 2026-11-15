@@ -6,6 +6,7 @@ import { backgroundSupported } from '../../src/lib/background';
 import { Body, Button, Card, Chip, Divider, Field, IconBadge, Pill, Row, Screen, SectionTitle } from '../../src/components/ui';
 import { confirmDialog, notify } from '../../src/lib/dialog';
 import { DEV_TOOLS } from '../../src/lib/flags';
+import { IS_OFFICER_APP } from '../../src/lib/variant';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { space, type as ty, useTheme } from '../../src/theme';
 
@@ -111,23 +112,27 @@ export default function AccountScreen() {
             <IconBadge name="shield-checkmark" tone="info" />
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={[ty.body, { color: t.text, fontWeight: '700' }]}>Your role: {ROLE_LABEL[user?.role ?? 'driver']}</Text>
-              <Body muted>Roles are not chosen in the app. An admin gives officer or operator access in the web console, under People &amp; roles.</Body>
+              <Body muted>Roles are not chosen in the app. An admin gives officer access in the web console, under People &amp; roles. Officers work in the separate ParkPay Enforce app.</Body>
             </View>
           </Row>
         </Card>
       )}
 
-      <SectionTitle>Reminders</SectionTitle>
-      <Card>
-        <Row>
-          <IconBadge name="notifications" tone={backgroundSupported ? 'brand' : 'muted'} />
-          <Body muted style={{ flex: 1 }}>
-            {backgroundSupported
-              ? 'Background reminders are on. If you drive away without ending your session, you get a notification (needs "Always" location).'
-              : 'You are in Expo Go: reminders work while the app is open. Install the development build for background reminders.'}
-          </Body>
-        </Row>
-      </Card>
+      {!IS_OFFICER_APP ? (
+        <>
+          <SectionTitle>Reminders</SectionTitle>
+          <Card>
+            <Row>
+              <IconBadge name="notifications" tone={backgroundSupported ? 'brand' : 'muted'} />
+              <Body muted style={{ flex: 1 }}>
+                {backgroundSupported
+                  ? 'Background reminders are on. If you drive away without ending your session, you get a notification (needs "Always" location).'
+                  : 'You are in Expo Go: reminders work while the app is open. Install the development build for background reminders.'}
+              </Body>
+            </Row>
+          </Card>
+        </>
+      ) : null}
 
       <View style={{ gap: space.sm, marginTop: space.sm }}>
         <Button

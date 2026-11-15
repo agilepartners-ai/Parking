@@ -20,11 +20,28 @@
       "android": {
         "buildType": "apk"
       },
-      "channel": "preview"
+      "channel": "preview",
+      "environment": "preview"
     },
     "production": {
       "autoIncrement": true,
       "channel": "production"
+    },
+    "officer-preview": {
+      "extends": "preview",
+      "environment": "preview",
+      "channel": "officer-preview",
+      "env": {
+        "APP_VARIANT": "officer"
+      }
+    },
+    "officer-production": {
+      "extends": "production",
+      "environment": "production",
+      "channel": "officer-production",
+      "env": {
+        "APP_VARIANT": "officer"
+      }
     }
   },
   "submit": {

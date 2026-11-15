@@ -772,3 +772,48 @@ Done on 2026-11-14 by reading the migrations and source and running the suites. 
 | 15 | Gap register statuses | Yes | Updated in this version |
 
 **Does not hold yet (by design, listed in section 15):** real payments, server push, sign in with Apple or Google, offline queue, location-spoofing checks, taxes, disputes flow, passes and family accounts, other languages, accessibility audit, monitoring, load test, lawyer-reviewed legal text, patent paperwork, final name and domain, restricted Maps key, real-device and iPhone tests, tolls.
+
+---
+
+## 19. Release state (2026-11-15)
+
+### Apps and sites
+
+| Product | For | Where | How it is distributed |
+|---|---|---|---|
+| ParkPay (Android 0.2.0, `com.parkpay.app`) | Drivers | GitHub release v0.2.0 (APK); updates on the `preview` channel | Public store listing later |
+| ParkPay Enforce (Android 0.2.0, `com.parkpay.enforce`) | Officers | GitHub release v0.2.0 (APK); updates on the `officer-preview` channel | Private distribution to staff later (Managed Google Play, Apple unlisted/custom app) |
+| Operator and platform console | Operator admins, platform admin | https://parkpay-console.pages.dev (Cloudflare Pages) | Web; sign in with an admin account |
+| Public website | Everyone, store reviewers | https://parkpay-site.pages.dev (Cloudflare Pages) | Web |
+
+Both apps are built from the same code. `APP_VARIANT=officer` at build time gives the officer app its own name, id and scheme; at run time the app reads its own installed id, so an over-the-air update cannot turn one app into the other. Officer screens are gone from the driver app, and driver screens are gone from the officer app.
+
+### Roles: who gives what
+
+| Role | Given by | Where |
+|---|---|---|
+| Driver | Automatic when someone creates an account | Either app |
+| Officer | An operator admin or the platform admin | Console, People & roles: type the person's email, choose Officer |
+| Operator admin | The platform admin only | Console, People & roles (operator chosen from a list) |
+| Platform admin | Only from the database by the owner | `dev_set_role` in the Supabase SQL editor |
+
+Nobody can change their own role. A person signing in to ParkPay Enforce without the officer role sees "Waiting for officer access" with these instructions.
+
+### Live data at hand-over
+
+One account (the owner, platform admin of the ParkPay Toronto Pilot operator), five published Toronto pilot areas with tariffs, no sessions, tickets or payments. All test accounts were removed with `scripts/reset-to-pilot.mjs`. The live test `scripts/live-smoke.mjs` creates and deletes its own throwaway account. Demo mode and test-location tools exist only in development builds.
+
+### Checks on 2026-11-15
+
+| Check | Result |
+|---|---|
+| Database suite | 183 passed, 0 failed (14 new checks for People & roles) |
+| Live driver flow through the public API | 20 passed |
+| Fee engine unit tests | 15 passed |
+| Deployed console, signed in as a test platform admin | Dashboard, Areas, People & roles (unknown email refused, officer granted, audit-logged), Tickets, Platform, Audit log all worked |
+| Driver app 0.2.0 on the emulator, live server | Sign-in, map, nearby parking, four tabs (no officer tab) |
+| ParkPay Enforce 0.2.0 on the emulator, live server | Officer sign-in, nearby paid vehicles, plate check, ticket issued and seen in the console; a non-officer gets the waiting screen |
+
+### Still needs the owner
+
+Add `https://parkpay-site.pages.dev/reset-password` to the allowed redirect URLs in Supabase (Authentication, URL configuration) so the password-reset email lands on the site. Restrict the Google Maps key to `com.parkpay.app` and `com.parkpay.enforce` with their signing fingerprints. Everything in section 15 marked "Not built" (payments, push, iOS, store listings) still needs the accounts named there.

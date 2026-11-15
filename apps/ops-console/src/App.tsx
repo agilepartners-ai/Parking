@@ -343,7 +343,7 @@ function Areas() {
 interface StaffRow { id: string; email: string; full_name: string; role: string; operator_id: string | null; operator_name: string | null; is_me: boolean }
 const ROLE_INFO: { id: 'driver' | 'officer' | 'operator_admin'; title: string; what: string }[] = [
   { id: 'driver', title: 'Driver', what: 'Parks and pays in the app. Everyone starts here. No console access.' },
-  { id: 'officer', title: 'Officer', what: 'Driver, plus an Officer tab in the app: check plates and issue tickets.' },
+  { id: 'officer', title: 'Officer', what: 'Uses the ParkPay Enforce app to check plates and issue tickets.' },
   { id: 'operator_admin', title: 'Operator admin', what: 'Signs in to this console: areas, rates, reports, refunds, staff.' },
 ];
 const STAFF_ERRORS: Record<string, string> = {
@@ -391,12 +391,12 @@ function Staff({ me }: { me: Profile }) {
 
       <div className="card grid">
         <h3>Give someone access</h3>
-        <p className="muted" style={{ margin: 0 }}>1. They create an account in the ParkPay app. 2. You type their email here and pick a role.</p>
+        <p className="muted" style={{ margin: 0 }}>1. They create an account in the ParkPay app (drivers) or the ParkPay Enforce app (officers). 2. You type their email here and pick a role.</p>
         <div className="row">
           <div style={{ flex: 2 }}><label htmlFor="st-email">Their email</label><input id="st-email" value={email} onChange={(e) => setEmail(e.target.value)} type="email" placeholder="person@example.com" /></div>
           <div><label htmlFor="st-role">Role</label><select id="st-role" value={role} onChange={(e) => setRole(e.target.value as 'officer' | 'operator_admin')}>{roles.filter((r) => r.id !== 'driver').map((r) => <option key={r.id} value={r.id}>{r.title}</option>)}</select></div>
           {isPlatform ? <div><label htmlFor="st-op">Operator</label><select id="st-op" value={opId} onChange={(e) => setOpId(e.target.value)}>{ops.map((o) => <option key={o.id} value={o.id}>{o.name}</option>)}</select></div> : null}
-          <button className="btn" style={{ flex: 0, whiteSpace: 'nowrap' }} disabled={!email.includes('@') || !!busy} onClick={async () => { await change(email.trim().toLowerCase(), role, isPlatform ? opId || null : null); setEmail(''); }}>Give access</button>
+          <button className="btn" style={{ flex: '0 0 auto', minWidth: 'max-content', whiteSpace: 'nowrap' }} disabled={!email.includes('@') || !!busy} onClick={async () => { await change(email.trim().toLowerCase(), role, isPlatform ? opId || null : null); setEmail(''); }}>Give access</button>
         </div>
         {error ? <div className="error" role="alert">{error}</div> : null}
         {msg ? <div className="ok" role="status">{msg}</div> : null}

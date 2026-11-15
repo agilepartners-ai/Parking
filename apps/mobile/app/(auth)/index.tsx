@@ -6,6 +6,7 @@ import { Logo } from '../../src/components/Boot';
 import KeyboardScroll from '../../src/components/KeyboardScroll';
 import { Banner, Body, Button, Card, Field, type InputRef } from '../../src/components/ui';
 import { DEV_TOOLS } from '../../src/lib/flags';
+import { IS_OFFICER_APP } from '../../src/lib/variant';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
 
@@ -75,8 +76,8 @@ export default function SignIn() {
           <View style={{ alignItems: 'center', gap: space.md }}>
             <Logo size={76} />
             <View style={{ alignItems: 'center', gap: 4 }}>
-              <Text style={[ty.title, { color: t.text }]}>{demo ? 'Welcome to ParkPay' : creating ? 'Create your account' : 'Welcome back'}</Text>
-              <Text style={[ty.body, { color: t.muted, textAlign: 'center' }]}>Park, pay for exactly the time you used, and go. No meters, no coins.</Text>
+              <Text style={[ty.title, { color: t.text }]}>{demo ? 'Welcome to ParkPay' : creating ? 'Create your account' : IS_OFFICER_APP ? 'ParkPay Enforce' : 'Welcome back'}</Text>
+              <Text style={[ty.body, { color: t.muted, textAlign: 'center' }]}>{IS_OFFICER_APP ? 'Check plates and issue tickets. For parking enforcement staff.' : 'Park, pay for exactly the time you used, and go. No meters, no coins.'}</Text>
             </View>
           </View>
 

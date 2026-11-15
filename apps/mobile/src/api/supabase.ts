@@ -81,7 +81,7 @@ export const supabaseApi: Api = {
     await sb().auth.signOut();
   },
   async requestPasswordReset(email) {
-    const { error } = await sb().auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: `${SITE_URL}/reset-password.html` });
+    const { error } = await sb().auth.resetPasswordForEmail(email.trim().toLowerCase(), { redirectTo: `${SITE_URL}/reset-password` });
     if (error) throw toApiError(error);
   },
   profile: () => rpc<Profile>('my_profile'),

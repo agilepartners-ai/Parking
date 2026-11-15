@@ -5,6 +5,8 @@ import React, { useEffect, useState } from 'react';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BootScreen, CrashScreen } from '../src/components/Boot';
 import { ToastProvider } from '../src/components/Motion';
+import NoAccess from '../src/components/NoAccess';
+import { IS_OFFICER_APP } from '../src/lib/variant';
 import { captureErrors, lastCapturedError, onCapturedError } from '../src/lib/boot';
 import { AppProvider, useApp } from '../src/state/AppState';
 import { useTheme } from '../src/theme';
@@ -21,17 +23,18 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Pro
 }
 
 function Gate() {
-  const { ready, user, bootSteps, skipBoot, onboarding } = useApp();
+  const { ready, user, bootSteps, skipBoot, onboarding, isStaff } = useApp();
   const t = useTheme();
   if (!ready) return <BootScreen steps={bootSteps} onSkip={skipBoot} />;
+  if (IS_OFFICER_APP && user && !isStaff) return <NoAccess />;
   return (
     <>
       <StatusBar style={t.dark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom' }}>
-        <Stack.Protected guard={!!user && onboarding}>
+        <Stack.Protected guard={!!user && onboarding && !IS_OFFICER_APP}>
           <Stack.Screen name="onboarding" />
         </Stack.Protected>
-        <Stack.Protected guard={!!user && !onboarding}>
+        <Stack.Protected guard={!!user && (!onboarding || IS_OFFICER_APP)}>
           <Stack.Screen name="(tabs)" />
           <Stack.Screen
             name="receipt/[id]"
