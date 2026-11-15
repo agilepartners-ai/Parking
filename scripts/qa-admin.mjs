@@ -1,18 +1,23 @@
 // Throwaway platform-admin account for testing the deployed console without typing a password.
-//   node scripts/qa-admin.mjs create <out.json>   -> creates qa-<ts>@parkpay.test, writes a signed-in session to out.json
+//   node scripts/qa-admin.mjs create <out.json> [pw-file]   -> creates qa-<ts>@parkpay.test, writes a signed-in session to
+//                                                              out.json; with pw-file also sets a random password and
+//                                                              writes "email password" there (for signing in on a test phone)
 //   node scripts/qa-admin.mjs delete              -> deletes every qa-*@parkpay.test account and what it made
 // The session JSON goes into localStorage key sb-<project-ref>-auth-token on the console's origin.
+import { randomBytes } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
 import { createClient } from '@supabase/supabase-js';
 import { connect } from '../supabase/db.mjs'; // loads ./.env (secret key, server side only)
 
 const PILOT_OPERATOR = '00000000-0000-4000-8000-0000000000a0';
 const svc = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SECRET_KEY, { auth: { autoRefreshToken: false, persistSession: false } });
-const [cmd, out] = process.argv.slice(2);
+const [cmd, out, pwFile] = process.argv.slice(2);
 
 if (cmd === 'create') {
   const email = `qa-${Date.now()}@parkpay.test`;
-  const u = await svc.auth.admin.createUser({ email, email_confirm: true, user_metadata: { full_name: 'QA Admin' } });
+  const password = pwFile ? randomBytes(12).toString('base64url') : undefined;
+  const u = await svc.auth.admin.createUser({ email, password, email_confirm: true, user_metadata: { full_name: 'QA Admin' } });
+  if (pwFile) writeFileSync(pwFile, `${email} ${password}`);
   if (u.error) throw u.error;
   const db = await connect();
   // app_user row is created by the auth trigger; make it a platform admin of the pilot operator

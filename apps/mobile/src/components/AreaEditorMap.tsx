@@ -1,5 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
-import React, { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react';
 import { Text, View, type LayoutChangeEvent } from 'react-native';
 import MapView, { Marker, Polygon, Polyline, PROVIDER_DEFAULT, type LatLng, type MapPressEvent, type Region } from 'react-native-maps';
 import {
@@ -105,6 +105,17 @@ export default forwardRef<AreaEditorHandle, Props>(function AreaEditorMap(p, ref
   const flagged = new Set(committed?.issues.filter((i) => i.at).map((i) => `${i.at![0]},${i.at![1]}`));
   const stroke = bad ? t.danger : closed ? '#0B8F5A' : '#E07B00';
 
+  // Android draws a custom marker into a bitmap. With tracksViewChanges off from the start, the snapshot is taken
+  // before the text has laid out and the label stays blank. Track for a moment after every change, then stop
+  // (tracking all the time costs frame rate on long outlines).
+  const [track, setTrack] = useState(true);
+  const lookKey = `${vertices.length}:${closed}:${p.selected}:${[...flagged].join('|')}:${vertices.map((v) => v.join(',')).join(';')}`;
+  useEffect(() => {
+    setTrack(true);
+    const h = setTimeout(() => setTrack(false), 800);
+    return () => clearTimeout(h);
+  }, [lookKey]);
+
   return (
     <View style={{ flex: 1 }} onLayout={(e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width || 360)}>
       <MapView
@@ -142,7 +153,7 @@ export default forwardRef<AreaEditorHandle, Props>(function AreaEditorMap(p, ref
         {/* edge handles: tap "+" to add a corner there; each shows the edge length */}
         {closed && !drag && shown.length <= 60
           ? midpoints(shown).map((m, i) => (
-              <Marker key={`mid-${i}-${m[0]}-${m[1]}`} coordinate={ll(m)} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}
+              <Marker key={`mid-${i}-${m[0]}-${m[1]}`} coordinate={ll(m)} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={track}
                 onPress={() => { markerPressAt.current = Date.now(); p.dispatch({ type: 'insert', after: i, at: m }); }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 3, backgroundColor: 'rgba(255,255,255,0.92)', borderRadius: 10, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#0B8F5A' }}>
                   <Ionicons name="add" size={12} color="#0B8F5A" />
@@ -162,7 +173,7 @@ export default forwardRef<AreaEditorHandle, Props>(function AreaEditorMap(p, ref
               coordinate={ll(v)}
               anchor={{ x: 0.5, y: 0.5 }}
               draggable
-              tracksViewChanges={false}
+              tracksViewChanges={track}
               onPress={() => {
                 markerPressAt.current = Date.now();
                 if (first && vertices.length >= 3) p.dispatch({ type: 'close' });
@@ -188,7 +199,7 @@ export default forwardRef<AreaEditorHandle, Props>(function AreaEditorMap(p, ref
         })}
         {tool === 'rectangle'
           ? pending.map((v, i) => (
-              <Marker key={`pend-${i}`} coordinate={ll(v)} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={false}>
+              <Marker key={`pend-${i}`} coordinate={ll(v)} anchor={{ x: 0.5, y: 0.5 }} tracksViewChanges={track}>
                 <View style={{ width: 18, height: 18, borderRadius: 9, backgroundColor: '#fff', borderWidth: 4, borderColor: '#E07B00' }} />
               </Marker>
             ))

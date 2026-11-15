@@ -53,10 +53,8 @@ export default function Areas() {
                   </View>
                   <View style={{ flex: 1, gap: 2 }}>
                     <Text style={[ty.body, { color: t.text, fontWeight: '800' }]} numberOfLines={1}>{a.name}</Text>
-                    <Text style={[ty.small, { color: t.muted }]} numberOfLines={1}>
-                      {a.level === 3 ? 'Parking area' : 'City zone'} · {fmtM2(geometryAreaM2(a.geometry))}
-                      {top ? ` · up to ${formatMoney(top, 'CAD')}/h` : ''}
-                    </Text>
+                    <Text style={[ty.small, { color: t.muted }]} numberOfLines={1}>{a.level === 3 ? 'Parking area' : 'City zone'} · {fmtM2(geometryAreaM2(a.geometry))}</Text>
+                    {top ? <Text style={[ty.small, { color: t.muted }]} numberOfLines={1}>Up to {formatMoney(top, 'CAD')} per hour</Text> : null}
                   </View>
                   <Pill text={a.active ? 'Published' : 'Draft'} tone={a.active ? 'brand' : 'muted'} />
                 </Card>
