@@ -844,3 +844,29 @@ Both apps had Expo's placeholder icon. 0.2.1 gives each its own: ParkPay is bran
 **ParkPay Admin** (`com.parkpay.admin`, violet icon with an area-outline badge, EAS profiles `admin-preview` / `admin-production`): the same code with `APP_VARIANT=admin`. Opens only for operator and platform admins (others see the waiting screen). Tabs: Dashboard (revenue, payout, parked now, tickets, revenue by area; 24 h / 7 / 30 / 90 days), Areas (list, new), People (give officer or operator-admin access by email, change or remove it), Account. The area editor (`app/area/[id].tsx`) is full screen: tap the map or move the centre crosshair onto a corner and press "Add corner" (your finger never hides the point), drag corners, tap an edge's "+ length" label to add a corner, select a corner to remove it, satellite view, address search, my location, and a Details tab for name, type, hours and rate lines; save, publish, unpublish, archive.
 
 All three apps are version 0.3.0 (runtime 0.3.0); install the 0.3.0 APKs, since earlier installs do not receive over-the-air updates across a runtime change.
+
+**Map steadiness and call budget (0.3.0).**
+
+What was wrong:
+- The driver map re-centred and reset its zoom on every GPS reading, which happens every 5 s or after 8 m.
+- The app state was a new object on every render, so every screen redrew on any change.
+- The admin editor kept the map region in React state and re-captured every marker bitmap after any edit.
+- Admin and Enforce polled driver data they never show.
+
+What changed:
+- **Driver map.** It follows only until the driver pans, keeps the chosen zoom (`animateCamera` with no zoom), and re-centres only after a 15 m move.
+- **GPS readings.** A reading under 3 m from the last one, with similar accuracy and moving state, is dropped.
+- **App state.** The context value is memoised.
+- **Admin editor.**
+  - The map region lives in a ref, so panning re-renders only the zoom badge.
+  - Each marker tracks view changes for 500 ms after its own content changes, then stops.
+  - Other areas are memoised.
+- **Staff apps.** They skip vehicle, session, arrival-geofence and area polling; the admin app reads GPS only on demand.
+- **Enforce.** Nearby vehicles reload after a 25 m move, and tickets reload when the screen opens.
+
+Measured on the emulator:
+- 23 frames recorded while panning the admin editor show every label, the same zoom and no blank markers.
+- The driver map stays where the driver panned it, with no snap-back and no zoom reset.
+- With the apps open and the position not changing, no server calls were made in 60 s.
+
+Cost: native Google Maps on Android has no per-load charge, and address search uses the phone's geocoder, so the saving is in server calls and battery.
