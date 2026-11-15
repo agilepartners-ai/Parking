@@ -35,7 +35,7 @@ export async function pingBackend(): Promise<boolean> {
   }
 }
 
-async function rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
+export async function rpc<T>(fn: string, args?: Record<string, unknown>): Promise<T> {
   const { data, error } = await sb().rpc(fn, args);
   if (error) throw toApiError(error);
   return data as T;

@@ -23,7 +23,7 @@ import { confirmDialog, notify } from '../../src/lib/dialog';
 import { askForLeaveWatch, shouldOfferLeaveWatch, startLeaveWatch } from '../../src/lib/background';
 import { useRefresh } from '../../src/lib/useRefresh';
 import { DEV_TOOLS } from '../../src/lib/flags';
-import { IS_OFFICER_APP } from '../../src/lib/variant';
+import { IS_ADMIN_APP, IS_OFFICER_APP } from '../../src/lib/variant';
 import { errorMessage, minutesUntilClose, useApp } from '../../src/state/AppState';
 import { radius, space, type as ty, useTheme } from '../../src/theme';
 
@@ -54,7 +54,7 @@ function LiveDot({ color }: { color: string }) {
 }
 
 export default function ParkTab() {
-  return IS_OFFICER_APP ? <Redirect href="/officer" /> : <ParkScreen />;
+  return IS_ADMIN_APP ? <Redirect href="/dashboard" /> : IS_OFFICER_APP ? <Redirect href="/officer" /> : <ParkScreen />;
 }
 
 function ParkScreen() {

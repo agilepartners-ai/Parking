@@ -6,7 +6,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { BootScreen, CrashScreen } from '../src/components/Boot';
 import { ToastProvider } from '../src/components/Motion';
 import NoAccess from '../src/components/NoAccess';
-import { IS_OFFICER_APP } from '../src/lib/variant';
+import { IS_ADMIN_APP, IS_OFFICER_APP, IS_STAFF_APP } from '../src/lib/variant';
 import { captureErrors, lastCapturedError, onCapturedError } from '../src/lib/boot';
 import { AppProvider, useApp } from '../src/state/AppState';
 import { useTheme } from '../src/theme';
@@ -24,18 +24,21 @@ export function ErrorBoundary({ error, retry }: { error: Error; retry: () => Pro
 
 function Gate() {
   const { ready, user, bootSteps, skipBoot, onboarding, isStaff } = useApp();
+  const isAdmin = user?.role === 'operator_admin' || user?.role === 'platform_admin';
   const t = useTheme();
   if (!ready) return <BootScreen steps={bootSteps} onSkip={skipBoot} />;
   if (IS_OFFICER_APP && user && !isStaff) return <NoAccess />;
+  if (IS_ADMIN_APP && user && !isAdmin) return <NoAccess />;
   return (
     <>
       <StatusBar style={t.dark ? 'light' : 'dark'} />
       <Stack screenOptions={{ headerShown: false, animation: 'fade_from_bottom' }}>
-        <Stack.Protected guard={!!user && onboarding && !IS_OFFICER_APP}>
+        <Stack.Protected guard={!!user && onboarding && !IS_STAFF_APP}>
           <Stack.Screen name="onboarding" />
         </Stack.Protected>
-        <Stack.Protected guard={!!user && (!onboarding || IS_OFFICER_APP)}>
+        <Stack.Protected guard={!!user && (!onboarding || IS_STAFF_APP)}>
           <Stack.Screen name="(tabs)" />
+          <Stack.Screen name="area/[id]" options={{ animation: 'slide_from_right' }} />
           <Stack.Screen
             name="receipt/[id]"
             options={{ headerShown: true, title: 'Receipt', presentation: 'modal', headerStyle: { backgroundColor: t.card }, headerTintColor: t.text, headerShadowVisible: false }}

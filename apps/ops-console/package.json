@@ -18,11 +18,10 @@
     "vite": "^8.3.7"
   },
   "dependencies": {
-    "@geoman-io/leaflet-geoman-free": "^2.20.6",
+    "@parkpay/shared": "*",
     "@supabase/supabase-js": "^2.119.0",
     "leaflet": "^1.9.4",
     "react": "^19.3.0",
-    "react-dom": "^19.3.0",
-    "@parkpay/shared": "*"
+    "react-dom": "^19.3.0"
   }
 }

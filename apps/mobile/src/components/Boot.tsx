@@ -5,11 +5,12 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import type { BootStep } from '../state/AppState';
 import { radius, space, type as ty, useTheme } from '../theme';
 import { Button } from './ui';
+import { IS_ADMIN_APP, IS_OFFICER_APP } from '../lib/variant';
 
 export function Logo({ size = 72 }: { size?: number }) {
   const t = useTheme();
   return (
-    <View style={{ width: size, height: size, borderRadius: size * 0.3, backgroundColor: t.brand, alignItems: 'center', justifyContent: 'center' }}>
+    <View style={{ width: size, height: size, borderRadius: size * 0.3, backgroundColor: IS_ADMIN_APP ? '#5B21B6' : IS_OFFICER_APP ? '#1E3A8A' : t.brand, alignItems: 'center', justifyContent: 'center' }}>
       <Text style={{ color: t.brandText, fontSize: size * 0.55, fontWeight: '900', letterSpacing: -2, marginTop: -2 }}>P</Text>
     </View>
   );

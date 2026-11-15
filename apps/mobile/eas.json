@@ -42,6 +42,22 @@
       "env": {
         "APP_VARIANT": "officer"
       }
+    },
+    "admin-preview": {
+      "extends": "preview",
+      "environment": "preview",
+      "channel": "admin-preview",
+      "env": {
+        "APP_VARIANT": "admin"
+      }
+    },
+    "admin-production": {
+      "extends": "production",
+      "environment": "production",
+      "channel": "admin-production",
+      "env": {
+        "APP_VARIANT": "admin"
+      }
     }
   },
   "submit": {

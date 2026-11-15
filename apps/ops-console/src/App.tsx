@@ -1,5 +1,8 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { formatMoney, formatDays, type AreaGeometry, type ParkingArea, type RateRule } from '@parkpay/shared';
+import { useCallback, useEffect, useMemo, useReducer, useState } from 'react';
+import {
+  analyzeShape, editorReducer, fmtM, fmtM2, formatDays, formatMoney, geometryAreaM2, initialEditor, simplifyVertices, toPolygon, verticesOf,
+  type AreaGeometry, type ParkingArea, type RateRule,
+} from '@parkpay/shared';
 import { Audit, Charts, Citations, Platform, Sessions, Versions } from './Admin';
 import MapEditor from './MapEditor';
 import { configured, rpc, supabase } from './supabase';
@@ -176,7 +179,6 @@ const AREA_ERRORS: Record<string, string> = {
   operator_required: 'Your account is not linked to an operator. A platform admin edits an existing area, or assigns you to an operator first.',
 };
 const areaError = (e: unknown) => { const m = (e as Error).message; const k = Object.keys(AREA_ERRORS).find((x) => m.includes(x)); return k ? AREA_ERRORS[k] : m.includes('no_rate_plan') ? 'Add at least one hourly rate and save before publishing.' : m; };
-const fmtArea = (m2: number) => (m2 >= 1e6 ? `${(m2 / 1e6).toFixed(2)} km²` : m2 >= 10000 ? `${(m2 / 10000).toFixed(2)} ha` : `${Math.round(m2).toLocaleString()} m²`);
 
 const cents = (s: string) => Math.round(parseFloat(s || '0') * 100);
 
@@ -188,17 +190,44 @@ function Areas() {
   const [saving, setSaving] = useState(false);
   const [stamp, setStamp] = useState(0);
   const [check, setCheck] = useState<AreaCheck | null>(null);
+  const [ed, dispatch] = useReducer(editorReducer, undefined, () => initialEditor());
+  const [focusKey, setFocusKey] = useState('');
+  const [squareCorners, setSquareCorners] = useState(true);
+  const [snapping, setSnapping] = useState(true);
+  const [parts, setParts] = useState({ extra: 0, holes: 0 });
 
-  // Ask the server about the shape while it is being drawn: size, limits and overlaps with other areas.
-  const draftGeo = draft?.geometry ?? null; const draftId = draft?.id ?? null; const draftLevel = draft?.level ?? 3;
+  const level = draft?.level ?? 3;
+  // The outline being edited. Untouched areas keep their stored geometry exactly (including extra parts);
+  // once edited, the shape is the editor's cleaned, counter-clockwise polygon.
+  const edited = ed.past.length > 0 || ed.future.length > 0;
+  const geometry: AreaGeometry | null = useMemo(() => {
+    if (!draft) return null;
+    if (!edited && draft.geometry) return draft.geometry;
+    return ed.closed && ed.vertices.length >= 3 ? toPolygon(ed.vertices) : null;
+  }, [draft, edited, ed.closed, ed.vertices]);
+  const report = useMemo(() => (ed.vertices.length >= 3 ? analyzeShape(ed.vertices, level) : null), [ed.vertices, level]);
+
+  // Ask the server too: it knows the other operators' areas, so it is the authority on overlaps.
+  const draftId = draft?.id ?? null;
   useEffect(() => {
-    if (!draftGeo) { setCheck(null); return; }
+    if (!geometry) { setCheck(null); return; }
     let stale = false;
     const id = setTimeout(() => {
-      rpc<AreaCheck>('operator_check_area', { p_area_id: draftId, p_level: draftLevel, p_geojson: draftGeo }).then((c) => { if (!stale) setCheck(c); }).catch(() => { if (!stale) setCheck(null); });
-    }, 300);
+      rpc<AreaCheck>('operator_check_area', { p_area_id: draftId, p_level: level, p_geojson: geometry }).then((c) => { if (!stale) setCheck(c); }).catch(() => { if (!stale) setCheck(null); });
+    }, 350);
     return () => { stale = true; clearTimeout(id); };
-  }, [draftGeo, draftId, draftLevel]);
+  }, [geometry, draftId, level]);
+
+  const load = useCallback(async () => { try { setAreas(await rpc<OperatorArea[]>('operator_areas')); } catch (e) { setError((e as Error).message); } }, []);
+  useEffect(() => { void load(); }, [load]);
+
+  function open(d: Draft | null, focus = true) {
+    setDraft(d); setMsg(''); setError(''); setCheck(null);
+    const v = verticesOf(d?.geometry);
+    setParts({ extra: v.extraParts, holes: v.holes });
+    dispatch({ type: 'load', vertices: v.vertices });
+    if (focus && v.vertices.length) setFocusKey(`${d?.id ?? 'new'}:${Date.now()}`);
+  }
 
   async function publish(on: boolean) {
     if (!draft?.id) return;
@@ -210,33 +239,20 @@ function Areas() {
     } catch (e) { setError(areaError(e)); } finally { setSaving(false); }
   }
 
-  const load = useCallback(async () => { try { setAreas(await rpc<OperatorArea[]>('operator_areas')); } catch (e) { setError((e as Error).message); } }, []);
-  useEffect(() => { void load(); }, [load]);
-
-  const selected = draft?.id ?? null;
-  const shownAreas = useMemo(() => areas.map((a) => (a.id === draft?.id && draft.geometry ? { ...a, geometry: draft.geometry } : a)), [areas, draft?.id, draft?.geometry]);
-
-  function onGeometry(g: AreaGeometry, isNew: boolean) {
-    setMsg(''); setError('');
-    // A fresh drawing never replaces the outline of the area that happens to be open: it starts a new draft
-    // (or reshapes a draft that has not been saved yet). Only dragging corners edits the open area.
-    setDraft((d) => (d && (!isNew || !d.id) ? { ...d, geometry: g } : { ...blankDraft(), geometry: g }));
-  }
-
   async function save() {
-    if (!draft || !draft.geometry) return;
+    if (!draft || !geometry) return;
     setSaving(true); setError(''); setMsg('');
     try {
       const rules: RateRule[] = draft.rules.map((r) => ({ days_of_week: r.days, start_time: r.start, end_time: r.end, price_per_hour_cents: cents(r.price), priority: parseInt(r.priority || '0', 10) }));
       const saved = await rpc<OperatorArea>('operator_save_area', {
-        p_area_id: draft.id, p_name: draft.name, p_level: draft.level, p_geojson: draft.geometry,
+        p_area_id: draft.id, p_name: draft.name, p_level: draft.level, p_geojson: geometry,
         p_max_stay: draft.maxStay ? parseInt(draft.maxStay, 10) : null, p_active: draft.active,
         p_plan: { name: draft.planName || `${draft.name} rate`, min_charge_cents: cents(draft.minCents), daily_max_cents: draft.dailyMax ? cents(draft.dailyMax) : null, grace_minutes: parseInt(draft.grace || '0', 10), rules },
       });
       let final = saved;
       if ((draft.closing.trim() || '') !== (saved.closing_time ?? '')) final = await rpc<OperatorArea>('operator_set_area_hours', { p_area_id: saved.id, p_closing_time: draft.closing.trim() });
       await load();
-      setDraft(toDraft(final));
+      open(toDraft(final), false);
       setStamp((n) => n + 1);
       setMsg(saved.active ? 'Saved. It is published, so drivers see the change right away. Cars already parked keep the old price until they leave.' : 'Saved as a draft. Drivers cannot see it until you publish.');
     } catch (e) { setError(areaError(e)); } finally { setSaving(false); }
@@ -246,11 +262,12 @@ function Areas() {
     if (!draft?.id) return;
     if (!window.confirm(`Archive "${draft.name}"? Drivers and this list will no longer show it. Receipts and history are kept. This cannot be undone from the console.`)) return;
     setSaving(true); setError(''); setMsg('');
-    try { await rpc('operator_archive_area', { p_area_id: draft.id }); await load(); setDraft(null); }
+    try { await rpc('operator_archive_area', { p_area_id: draft.id }); await load(); open(null); }
     catch (e) { setError(areaError(e)); } finally { setSaving(false); }
   }
 
-  // Import a shape drawn elsewhere (GeoJSON Feature, FeatureCollection or bare geometry). The first polygon is used.
+  // Import a shape drawn elsewhere (GeoJSON Feature, FeatureCollection or bare geometry). The first polygon is used;
+  // outlines with far more corners than a lot needs are simplified to 30 cm so they stay editable.
   async function importFile(f: File | undefined) {
     if (!f) return;
     setError(''); setMsg('');
@@ -259,8 +276,13 @@ function Areas() {
       const feats = (j.type === 'FeatureCollection' ? j.features ?? [] : [j]) as { type?: string; geometry?: AreaGeometry; properties?: { name?: string }; coordinates?: unknown }[];
       const hit = feats.map((x) => ({ g: (x.type === 'Feature' ? x.geometry : x) as AreaGeometry | undefined, name: x.properties?.name })).find((x) => x.g && (x.g.type === 'Polygon' || x.g.type === 'MultiPolygon'));
       if (!hit?.g) throw new Error('no_polygon');
-      setDraft({ ...blankDraft(), geometry: hit.g, name: hit.name ?? f.name.replace(/\.(geo)?json$/i, '') });
-      setMsg(feats.length > 1 ? `Imported the first of ${feats.length} shapes. Check it on the map, set the rates, then save.` : 'Imported. Check it on the map, set the rates, then save.');
+      let v = verticesOf(hit.g).vertices;
+      const before = v.length;
+      if (v.length > 300) v = simplifyVertices(v, 0.3);
+      open({ ...blankDraft(), name: hit.name ?? f.name.replace(/\.(geo)?json$/i, ''), geometry: null });
+      dispatch({ type: 'load', vertices: v });
+      setFocusKey(`import:${Date.now()}`);
+      setMsg(`${feats.length > 1 ? `Imported the first of ${feats.length} shapes` : 'Imported'}${before !== v.length ? `, simplified from ${before} to ${v.length} corners (within 30 cm)` : ''}. Check it on the map, set the rates, then save.`);
     } catch {
       setError('That file is not GeoJSON with a polygon. Export the area as GeoJSON (WGS84, longitude then latitude) and try again.');
     }
@@ -268,19 +290,60 @@ function Areas() {
 
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setDraft((d) => (d ? { ...d, [k]: v } : d));
   const setRule = (i: number, patch: Partial<Draft['rules'][number]>) => setDraft((d) => (d ? { ...d, rules: d.rules.map((r, j) => (j === i ? { ...r, ...patch } : r)) } : d));
+  const serverBlocks = check != null && !check.valid && (draft?.active || check.problems.some((p) => p !== 'area_overlaps_other_operator'));
+  const canSave = !!draft && !!geometry && draft.name.trim().length >= 2 && (report ? report.valid : !!geometry) && !serverBlocks;
 
   return (
     <div className="grid">
       <h2 style={{ margin: 0 }}>Areas &amp; rates</h2>
-      <p className="muted" style={{ margin: 0 }}>Click an area to edit its rates and drag its corners. To add one, draw a polygon or rectangle with the tools on the left of the map.</p>
+      <p className="muted" style={{ margin: 0 }}>Open an area to edit it, or start a new one. Draw at street zoom: click to place corners (they snap to nearby corners and edges), click the first corner to finish. Drag corners to adjust, click the small dots to add a corner, right-click a corner to remove it.</p>
       <div className="split">
-        <MapEditor areas={shownAreas} selectedId={selected} draftGeometry={draft && !draft.id ? draft.geometry : null}
-          onSelect={(id) => { const a = areas.find((x) => x.id === id); if (a) { setDraft(toDraft(a)); setMsg(''); setError(''); } }} onGeometry={onGeometry} />
+        <div className="grid" style={{ gap: 8 }}>
+          {draft ? (
+            <div className="toolbar" role="toolbar" aria-label="Drawing tools">
+              <div className="seg">
+                <button type="button" className={ed.tool === 'polygon' ? 'on' : ''} onClick={() => dispatch({ type: 'tool', tool: 'polygon' })} title="Click each corner, then the first corner again">Outline</button>
+                <button type="button" className={ed.tool === 'rectangle' ? 'on' : ''} onClick={() => dispatch({ type: 'tool', tool: 'rectangle' })} title="Click two corners along one side, then a third point for the depth">Rectangle (3 clicks)</button>
+              </div>
+              <button type="button" className="tool" onClick={() => dispatch({ type: 'undo' })} disabled={!ed.past.length && !ed.pending.length} title="Undo (Ctrl+Z)">Undo</button>
+              <button type="button" className="tool" onClick={() => dispatch({ type: 'redo' })} disabled={!ed.future.length} title="Redo (Ctrl+Y)">Redo</button>
+              {!ed.closed && ed.vertices.length >= 3 ? <button type="button" className="tool" onClick={() => dispatch({ type: 'close' })} title="Enter">Finish shape</button> : null}
+              <button type="button" className="tool" onClick={() => dispatch({ type: 'clear' })} disabled={!ed.vertices.length && !ed.pending.length}>Start over</button>
+              <label className="check"><input type="checkbox" checked={snapping} onChange={(e) => setSnapping(e.target.checked)} /> Snap</label>
+              <label className="check"><input type="checkbox" checked={squareCorners} onChange={(e) => setSquareCorners(e.target.checked)} /> Square corners</label>
+            </div>
+          ) : null}
+          <MapEditor areas={areas} editingId={draft?.id ?? null} level={level} state={ed} dispatch={dispatch} active={!!draft}
+            onSelect={(id) => { const a = areas.find((x) => x.id === id); if (a) open(toDraft(a)); }}
+            focusKey={focusKey} squareCorners={squareCorners} snapping={snapping} />
+          {draft ? (
+            <div className="geo" aria-live="polite">
+              {!ed.vertices.length ? (
+                <div className="muted">{ed.tool === 'rectangle' ? `Rectangle: click the first corner (${ed.pending.length}/3).` : 'Click the map to place the first corner.'}</div>
+              ) : (
+                <div className="metrics">
+                  <div><span>Size</span><b>{report ? fmtM2(report.areaM2) : '–'}</b></div>
+                  <div><span>Perimeter</span><b>{report ? fmtM(report.perimeterM) : '–'}</b></div>
+                  <div><span>Narrowest</span><b>{report ? fmtM(report.minWidthM) : '–'}</b></div>
+                  <div><span>Corners</span><b>{ed.vertices.length}</b></div>
+                  <div><span>Status</span><b className={!ed.closed ? 'warn' : report?.valid ? 'ok' : 'error'}>{!ed.closed ? 'Not finished' : report?.valid ? 'Valid' : 'Fix below'}</b></div>
+                </div>
+              )}
+              {parts.extra && !edited ? <div className="warn">This area has {parts.extra + 1} separate parts. Editing reshapes the first part only; the others are dropped when you save an edit.</div> : null}
+              {parts.holes && !edited ? <div className="warn">This area has {parts.holes} hole(s). Editing keeps only the outer outline.</div> : null}
+              {report?.issues.map((i) => <div key={i.code} className={i.severity === 'error' ? 'error' : 'warn'}>{i.message}</div>)}
+              {check?.overlaps.filter((o) => o.same_operator).map((o) => <div key={o.name} className="warn">Overlaps your area “{o.name}” by {fmtM2(o.overlap_m2)}. Where two areas overlap, drivers are charged the rate of the smaller one.</div>)}
+              {check?.overlaps.filter((o) => !o.same_operator && o.published).map((o) => <div key={o.name} className="error">Overlaps another operator's published area by {fmtM2(o.overlap_m2)}. It cannot be published until the edge is moved.</div>)}
+              {ed.closed && report?.valid && check && !check.overlaps.length ? <div className="ok">Checked with the server: no overlap with other areas.</div> : null}
+            </div>
+          ) : null}
+        </div>
         <div className="grid">
           {!draft ? (
             <div className="card list">
               <h3>Areas ({areas.length})</h3>
-              {areas.map((a) => <button key={a.id} onClick={() => setDraft(toDraft(a))}><b>{a.name}</b> <span className="muted">· {a.level === 3 ? 'area' : 'zone'}</span> <span className={`pill ${a.active ? '' : 'grey'}`} style={{ float: 'right' }}>{a.active ? 'Published' : 'Draft'}</span></button>)}
+              {areas.map((a) => <button key={a.id} onClick={() => open(toDraft(a))}><b>{a.name}</b> <span className="muted">· {a.level === 3 ? 'area' : 'zone'} · {fmtM2(geometryAreaM2(a.geometry))}</span> <span className={`pill ${a.active ? '' : 'grey'}`} style={{ float: 'right' }}>{a.active ? 'Published' : 'Draft'}</span></button>)}
+              {!areas.length ? <div className="muted">No areas yet. Start a new one.</div> : null}
             </div>
           ) : (
             <div className="card grid">
@@ -310,27 +373,19 @@ function Areas() {
               ))}
               <button type="button" className="btn secondary" onClick={() => set('rules', [...draft.rules, { days: [1, 2, 3, 4, 5], start: '08:00', end: '18:00', price: '3.00', priority: '0' }])}>+ Add rate line</button>
               <p className="muted" style={{ margin: 0, fontSize: 13 }}>{draft.active ? 'This area is live: every driver app can see and use it.' : 'Draft: only your staff can see it. Save, check it on the map, then publish.'}</p>
-              {!draft.geometry ? <div className="error">Draw the area on the map first.</div> : null}
-              {check ? (
-                <div className="geo" aria-live="polite">
-                  <div><b>Size:</b> {fmtArea(check.area_m2)}</div>
-                  {check.problems.map((p) => <div key={p} className={p === 'self_intersecting' ? 'warn' : 'error'}>{AREA_ERRORS[p] ?? p}</div>)}
-                  {check.overlaps.filter((o) => o.same_operator).map((o) => <div key={o.name} className="warn">Overlaps your area “{o.name}” by {fmtArea(o.overlap_m2)}. Where two areas overlap, drivers are charged the rate of the smaller one.</div>)}
-                  {check.valid && !check.problems.length && !check.overlaps.length ? <div className="ok">No overlap with other areas.</div> : null}
-                </div>
-              ) : null}
+              {!geometry ? <div className="error">{ed.vertices.length ? 'Finish the shape on the map (click the first corner).' : 'Draw the area on the map first.'}</div> : null}
               {error ? <div className="error">{error}</div> : null}
               {msg ? <div className="ok">{msg}</div> : null}
               <div className="row">
-                <button className={draft.active || !draft.id ? 'btn' : 'btn secondary'} disabled={saving || !draft.geometry || draft.name.trim().length < 2 || (check != null && !check.valid && (draft.active || check.problems.some((p) => p !== 'area_overlaps_other_operator')))} onClick={save}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Save draft'}</button>
-                {draft.id ? <button className={draft.active ? 'btn danger' : 'btn'} disabled={saving} onClick={() => publish(!draft.active)}>{draft.active ? 'Unpublish' : 'Publish'}</button> : null}
-                <button className="btn secondary" onClick={() => { setDraft(null); setError(''); setMsg(''); }}>Close</button>
+                <button className={draft.active || !draft.id ? 'btn' : 'btn secondary'} disabled={saving || !canSave} onClick={save}>{saving ? 'Saving…' : draft.id ? 'Save changes' : 'Save draft'}</button>
+                {draft.id ? <button className={draft.active ? 'btn danger' : 'btn'} disabled={saving || edited} title={edited ? 'Save the outline first' : undefined} onClick={() => publish(!draft.active)}>{draft.active ? 'Unpublish' : 'Publish'}</button> : null}
+                <button className="btn secondary" onClick={() => open(null, false)}>Close</button>
               </div>
               {draft.id ? <Versions areaId={draft.id} stamp={stamp} /> : null}
               {draft.id && !draft.active ? <button type="button" className="linkish" disabled={saving} onClick={archive}>Archive this area</button> : null}
             </div>
           )}
-          {!draft ? <button className="btn secondary" onClick={() => setDraft(blankDraft())}>+ New area (then draw it)</button> : null}
+          {!draft ? <button className="btn" onClick={() => open(blankDraft())}>+ New area</button> : null}
           {!draft ? <label className="btn secondary filebtn">Import GeoJSON<input type="file" accept=".json,.geojson,application/geo+json,application/json" onChange={(e) => { void importFile(e.target.files?.[0]); e.target.value = ''; }} /></label> : null}
           {msg && !draft ? <div className="ok">{msg}</div> : null}
           {error && !draft ? <div className="error">{error}</div> : null}

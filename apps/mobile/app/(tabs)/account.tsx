@@ -6,7 +6,7 @@ import { backgroundSupported } from '../../src/lib/background';
 import { Body, Button, Card, Chip, Divider, Field, IconBadge, Pill, Row, Screen, SectionTitle } from '../../src/components/ui';
 import { confirmDialog, notify } from '../../src/lib/dialog';
 import { DEV_TOOLS } from '../../src/lib/flags';
-import { IS_OFFICER_APP } from '../../src/lib/variant';
+import { IS_STAFF_APP } from '../../src/lib/variant';
 import { errorMessage, useApp } from '../../src/state/AppState';
 import { space, type as ty, useTheme } from '../../src/theme';
 
@@ -112,13 +112,13 @@ export default function AccountScreen() {
             <IconBadge name="shield-checkmark" tone="info" />
             <View style={{ flex: 1, gap: 2 }}>
               <Text style={[ty.body, { color: t.text, fontWeight: '700' }]}>Your role: {ROLE_LABEL[user?.role ?? 'driver']}</Text>
-              <Body muted>Roles are not chosen in the app. An admin gives officer access in the web console, under People &amp; roles. Officers work in the separate ParkPay Enforce app.</Body>
+              <Body muted>Roles are not chosen in the app. An admin gives officer access in the web console, under People &amp; roles. Officers work in ParkPay Enforce, admins in ParkPay Admin or the web console.</Body>
             </View>
           </Row>
         </Card>
       )}
 
-      {!IS_OFFICER_APP ? (
+      {!IS_STAFF_APP ? (
         <>
           <SectionTitle>Reminders</SectionTitle>
           <Card>
