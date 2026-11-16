@@ -100,8 +100,13 @@ function Dashboard() {
       setError('');
       rpc<OperatorArea[]>('operator_areas').then((a) => setOcc(a.filter((x) => x.active && x.level === 3))).catch(() => undefined);
       const from = new Date(Date.now() - days * 86_400_000).toISOString();
-      setReport(await rpc<Report>('operator_report', { p_from: from, p_to: new Date().toISOString() }));
-      setActive(await rpc<ActiveSession[]>('operator_active_sessions'));
+      // load together and show together, so the totals and the "Parked now" list never disagree on screen
+      const [r, a] = await Promise.all([
+        rpc<Report>('operator_report', { p_from: from, p_to: new Date().toISOString() }),
+        rpc<ActiveSession[]>('operator_active_sessions'),
+      ]);
+      setReport(r);
+      setActive(a);
     } catch (e) { setError((e as Error).message); }
   }, [days]);
   useEffect(() => { void refresh(); const id = setInterval(() => void refresh(), 30_000); return () => clearInterval(id); }, [refresh]);
