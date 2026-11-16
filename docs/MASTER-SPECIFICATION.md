@@ -870,3 +870,15 @@ Measured on the emulator:
 - With the apps open and the position not changing, no server calls were made in 60 s.
 
 Cost: native Google Maps on Android has no per-load charge, and address search uses the phone's geocoder, so the saving is in server calls and battery.
+
+**Parking capacity (0.3.0)** (`supabase/migrations/20261116000009_capacity.sql`, `…10_capacity_version_action.sql`).
+
+| Concern | Rule |
+| --- | --- |
+| Unit of capacity | The area, not the bay. Phone GPS is good to 5-25 m and a bay is 2.5 m wide, so the server cannot know which bay a car is in. It does know exactly how many sessions are running in an area. |
+| Setting it | `operator_set_area_capacity(area, spaces)`: 1 to 100,000 spaces, or null for "not counted" (streets, zones). It is audit-logged and versioned. Lowering it below the number of cars parked is allowed: those cars stay, and new starts are refused until enough have left. |
+| Counting | `occupied` is counted live from running sessions using the existing partial index. It is never a stored counter, so it cannot drift when a phone dies, a session expires on its own or a refund voids one. `available = max(spaces - occupied, 0)`. Both are in every area returned to the apps. Version snapshots leave them out, because they record settings, not a moment's occupancy. |
+| No overbooking | `start_session` locks the area row (`select … for update`) before counting. Two drivers racing for the last space are served one after the other, and the second gets `area_full`. A retried start that was already accepted is still answered. |
+| Freeing a space | Ending a session in any way (driver, overdue job, refund) frees its space at once. |
+| Apps | Driver: "N of M free" or "Full" on the area card and the nearby list; a full area shows a banner and the start button is disabled; counts refresh after start and end. Admin app and console: a Spaces field, occupancy in the area list, and an "Occupancy now" section on the dashboard. |
+| Tests | 17 database checks (200 total). `supabase/tests/capacity-race.mjs` runs two real connections racing for one space: one parks, and the other waits for the first and is refused. `scripts/capacity-live.mjs` runs the whole flow through the public API with throwaway accounts and puts everything back. |
