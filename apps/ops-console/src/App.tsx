@@ -93,10 +93,12 @@ function Dashboard() {
   const [days, setDays] = useState(30);
   const [report, setReport] = useState<Report | null>(null);
   const [active, setActive] = useState<ActiveSession[]>([]);
+  const [occ, setOcc] = useState<OperatorArea[]>([]);
   const [error, setError] = useState('');
   const refresh = useCallback(async () => {
     try {
       setError('');
+      rpc<OperatorArea[]>('operator_areas').then((a) => setOcc(a.filter((x) => x.active && x.level === 3))).catch(() => undefined);
       const from = new Date(Date.now() - days * 86_400_000).toISOString();
       setReport(await rpc<Report>('operator_report', { p_from: from, p_to: new Date().toISOString() }));
       setActive(await rpc<ActiveSession[]>('operator_active_sessions'));
@@ -122,6 +124,15 @@ function Dashboard() {
             <div className="card"><h3>Parked right now</h3><div className="big">{report.active_now}</div><div className="muted">active sessions</div></div>
             <div className="card"><h3>Citations</h3><div className="big">{report.citations}</div><div className="muted">{formatMoney(report.citation_cents, CUR)} in fines</div></div>
           </div>
+          <div className="card">
+            <h3>Occupancy now</h3>
+            <table><thead><tr><th>Area</th><th>Parked</th><th>Spaces</th><th style={{ width: '40%' }}></th></tr></thead>
+              <tbody>{occ.map((a) => {
+                const counted = a.total_spaces != null; const pct = counted ? Math.min(100, ((a.occupied ?? 0) / Math.max(1, a.total_spaces!)) * 100) : 0; const full = counted && (a.available ?? 0) === 0;
+                return <tr key={a.id}><td>{a.name}</td><td>{a.occupied ?? 0}</td><td>{counted ? <span className={full ? 'error' : ''}>{a.total_spaces}{full ? ' · full' : ` · ${a.available} free`}</span> : <span className="muted">not counted</span>}</td>
+                  <td>{counted ? <div className="occ"><div style={{ width: `${Math.max(2, pct)}%`, background: full ? 'var(--danger)' : pct >= 85 ? 'var(--warn)' : 'var(--brand)' }} /></div> : null}</td></tr>;
+              })}{occ.length === 0 ? <tr><td colSpan={4} className="muted">No published parking areas.</td></tr> : null}</tbody></table>
+          </div>
           <Charts days={days} currency={CUR} />
           <div className="split" style={{ gridTemplateColumns: '1fr 1fr' }}>
             <div className="card">
@@ -144,20 +155,21 @@ function Dashboard() {
 }
 
 interface Draft {
-  id: string | null; name: string; level: 2 | 3; maxStay: string; closing: string; active: boolean;
+  id: string | null; name: string; level: 2 | 3; maxStay: string; closing: string; spaces: string; active: boolean;
   planName: string; minCents: string; dailyMax: string; grace: string;
   rules: { days: number[]; start: string; end: string; price: string; priority: string }[];
   geometry: AreaGeometry | null;
 }
 
 const blankDraft = (): Draft => ({
-  id: null, name: '', level: 3, maxStay: '', closing: '', active: false, planName: '', minCents: '1.00', dailyMax: '', grace: '5',
+  id: null, name: '', level: 3, maxStay: '', closing: '', spaces: '', active: false, planName: '', minCents: '1.00', dailyMax: '', grace: '5',
   rules: [{ days: [1, 2, 3, 4, 5, 6, 7], start: '08:00', end: '24:00', price: '3.00', priority: '0' }], geometry: null,
 });
 
 function toDraft(a: OperatorArea): Draft {
   return {
-    id: a.id, name: a.name, level: a.level === 2 ? 2 : 3, maxStay: a.max_stay_minutes ? String(a.max_stay_minutes) : '', closing: a.closing_time ?? '', active: a.active,
+    id: a.id, name: a.name, level: a.level === 2 ? 2 : 3, maxStay: a.max_stay_minutes ? String(a.max_stay_minutes) : '', closing: a.closing_time ?? '',
+    spaces: a.total_spaces != null ? String(a.total_spaces) : '', active: a.active,
     planName: a.plan.name, minCents: (a.plan.min_charge_cents / 100).toFixed(2), dailyMax: a.plan.daily_max_cents != null ? (a.plan.daily_max_cents / 100).toFixed(2) : '',
     grace: String(a.plan.grace_minutes),
     rules: a.plan.rules.map((r) => ({ days: r.days_of_week, start: r.start_time, end: r.end_time, price: (r.price_per_hour_cents / 100).toFixed(2), priority: String(r.priority) })),
@@ -174,6 +186,7 @@ const AREA_ERRORS: Record<string, string> = {
   invalid_geometry: 'This shape is not valid. Draw it again.',
   self_intersecting: 'The outline crosses itself. It will be repaired when saved; check the result on the map.',
   invalid_time: 'Write the closing time as HH:MM, for example 23:00, or leave it empty.',
+  invalid_capacity: 'Spaces must be a whole number from 1 to 100,000, or empty if you do not count spaces.',
   area_has_active_sessions: 'A vehicle is parked here right now. Unpublish the area and archive it once it is empty.',
   area_not_found: 'That area belongs to another operator.',
   operator_required: 'Your account is not linked to an operator. A platform admin edits an existing area, or assigns you to an operator first.',
@@ -251,6 +264,8 @@ function Areas() {
       });
       let final = saved;
       if ((draft.closing.trim() || '') !== (saved.closing_time ?? '')) final = await rpc<OperatorArea>('operator_set_area_hours', { p_area_id: saved.id, p_closing_time: draft.closing.trim() });
+      const spaces = draft.spaces.trim() ? parseInt(draft.spaces.trim(), 10) : null;
+      if (spaces !== (final.total_spaces ?? null)) final = await rpc<OperatorArea>('operator_set_area_capacity', { p_area_id: saved.id, p_total_spaces: spaces });
       await load();
       open(toDraft(final), false);
       setStamp((n) => n + 1);
@@ -342,7 +357,7 @@ function Areas() {
           {!draft ? (
             <div className="card list">
               <h3>Areas ({areas.length})</h3>
-              {areas.map((a) => <button key={a.id} onClick={() => open(toDraft(a))}><b>{a.name}</b> <span className="muted">· {a.level === 3 ? 'area' : 'zone'} · {fmtM2(geometryAreaM2(a.geometry))}</span> <span className={`pill ${a.active ? '' : 'grey'}`} style={{ float: 'right' }}>{a.active ? 'Published' : 'Draft'}</span></button>)}
+              {areas.map((a) => <button key={a.id} onClick={() => open(toDraft(a))}><b>{a.name}</b> <span className="muted">· {a.level === 3 ? 'area' : 'zone'} · {fmtM2(geometryAreaM2(a.geometry))} · {a.total_spaces != null ? ((a.available ?? 0) === 0 ? <span className="error">full ({a.occupied}/{a.total_spaces})</span> : `${a.occupied ?? 0}/${a.total_spaces} parked`) : `${a.occupied ?? 0} parked`}</span> <span className={`pill ${a.active ? '' : 'grey'}`} style={{ float: 'right' }}>{a.active ? 'Published' : 'Draft'}</span></button>)}
               {!areas.length ? <div className="muted">No areas yet. Start a new one.</div> : null}
             </div>
           ) : (
@@ -353,7 +368,14 @@ function Areas() {
                 <div><label>Type</label><select value={draft.level} onChange={(e) => set('level', Number(e.target.value) as 2 | 3)}><option value={3}>Parking area (lot / street)</option><option value={2}>City zone (fallback)</option></select></div>
                 <div><label>Max stay (min)</label><input value={draft.maxStay} onChange={(e) => set('maxStay', e.target.value)} placeholder="none" inputMode="numeric" /></div>
                 <div><label>Closes at</label><input value={draft.closing} onChange={(e) => set('closing', e.target.value)} placeholder="never" aria-label="Closing time, 24-hour HH:MM" /></div>
+                <div><label>Spaces</label><input value={draft.spaces} onChange={(e) => set('spaces', e.target.value.replace(/[^0-9]/g, ''))} placeholder="not counted" inputMode="numeric" aria-label="Number of parking spaces, empty if not counted" /></div>
               </div>
+              {(() => {
+                const a = areas.find((x) => x.id === draft.id);
+                return a && a.total_spaces != null
+                  ? <p className={(a.available ?? 0) === 0 ? 'error' : 'muted'} style={{ margin: 0, fontSize: 13 }}>Now {a.occupied ?? 0} parked, {a.available ?? 0} free. When every space is taken, drivers see “Full” and the server refuses new sessions; ending a session frees its space at once.</p>
+                  : <p className="muted" style={{ margin: 0, fontSize: 13 }}>Spaces are counted per area (phone GPS cannot tell which bay a car is in): each running session uses one. Leave empty for streets and zones you do not count.</p>;
+              })()}
               <div className="row">
                 <div><label>Minimum charge ($)</label><input value={draft.minCents} onChange={(e) => set('minCents', e.target.value)} inputMode="decimal" /></div>
                 <div><label>Daily max ($)</label><input value={draft.dailyMax} onChange={(e) => set('dailyMax', e.target.value)} placeholder="none" inputMode="decimal" /></div>

@@ -107,3 +107,4 @@ td, .big { font-variant-numeric: tabular-nums; }
   header.top nav { order: 3; width: 100%; overflow-x: auto; flex-wrap: nowrap; }
   header.top nav button { white-space: nowrap; }
 }
+.occ { height: 8px; border-radius: 4px; background: var(--soft); overflow: hidden; } .occ > div { height: 100%; border-radius: 4px; }

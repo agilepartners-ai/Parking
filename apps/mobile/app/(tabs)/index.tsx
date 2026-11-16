@@ -12,6 +12,7 @@ import {
   formatMoney,
   geometryCenter,
   haversineMeters,
+  spacesLabel,
   type ParkingArea,
 } from '@parkpay/shared';
 import AreaMap, { hasRealMap } from '../../src/components/AreaMap';
@@ -284,6 +285,15 @@ function ParkScreen() {
                     </Row>
                   );
                 })()}
+                {(() => {
+                  const sp = spacesLabel(currentArea);
+                  return sp ? (
+                    <Row style={{ gap: 6 }}>
+                      <Ionicons name={sp.full ? 'close-circle' : 'car'} size={16} color={sp.full ? t.danger : t.brand} />
+                      <Text style={{ color: sp.full ? t.danger : t.brand, fontWeight: '800', fontVariant: ['tabular-nums'] }}>{sp.full ? 'Full: every space is taken' : sp.text}</Text>
+                    </Row>
+                  ) : null;
+                })()}
                 {currentArea.max_stay_minutes || currentArea.closing_time ? (
                   <Text style={[ty.small, { color: t.muted }]}>
                     {[currentArea.max_stay_minutes ? `Maximum stay ${formatDuration(currentArea.max_stay_minutes)}` : null, currentArea.closing_time ? `Closes at ${currentArea.closing_time}${(minutesUntilClose(currentArea) ?? 999) <= 60 ? ` (in ${minutesUntilClose(currentArea)} min)` : ''}` : null].filter(Boolean).join(' · ')}
@@ -319,7 +329,8 @@ function ParkScreen() {
                   <Ionicons name="chevron-forward" size={16} color={t.brand} />
                 </Row>
               </Pressable>
-              <Button title="Start parking" icon="play" onPress={onStart} loading={busy} disabled={!vehicleId} />
+              {currentArea.available === 0 ? <Banner tone="danger" icon="close-circle" title="This area is full right now" text="Every space is taken. Pick a nearby area with free spaces, or wait for a car to leave." /> : null}
+              <Button title="Start parking" icon="play" onPress={onStart} loading={busy} disabled={!vehicleId || currentArea.available === 0} />
               <Text style={[ty.small, { color: t.muted, textAlign: 'center' }]}>You pay when you end, for the exact minutes used. The server keeps the time.</Text>
             </Card>
             <RateCard area={currentArea} />
@@ -375,12 +386,13 @@ function Nearby({ items, hereId, focusId, onPick, loading }: { items: { a: Parki
               const here = a.id === hereId;
               const on = a.id === focusId;
               const rate = currentRateCents(a.plan, a.timezone, Date.now());
+              const sp = spacesLabel(a);
               return (
                 <Pressable
                   key={a.id}
                   accessibilityRole="button"
                   accessibilityState={{ selected: on }}
-                  accessibilityLabel={`${a.name}, ${here ? 'you are here' : dist(d) + ' away'}, ${rate === 0 ? 'free right now' : formatMoney(rate, a.plan.currency) + ' per hour'}. Show on map.`}
+                  accessibilityLabel={`${a.name}, ${here ? 'you are here' : dist(d) + ' away'}, ${rate === 0 ? 'free right now' : formatMoney(rate, a.plan.currency) + ' per hour'}${sp ? ', ' + sp.text : ''}. Show on map.`}
                   onPress={() => onPick(a.id)}
                   style={({ pressed }) => ({ width: 176, gap: 6, padding: 12, borderRadius: radius.card, backgroundColor: t.card, borderWidth: 1.5, borderColor: on ? t.brand : here ? t.brandSoft : t.border, transform: [{ scale: pressed ? 0.97 : 1 }] })}
                 >
@@ -390,6 +402,7 @@ function Nearby({ items, hereId, focusId, onPick, loading }: { items: { a: Parki
                   </Row>
                   <Text numberOfLines={1} style={{ color: t.text, fontSize: 15, fontWeight: '700' }}>{a.name}</Text>
                   <Text style={{ color: rate === 0 ? t.brand : t.text, fontSize: 13, fontWeight: '600', fontVariant: ['tabular-nums'] }}>{rate === 0 ? 'Free right now' : `${formatMoney(rate, a.plan.currency)} / h`}</Text>
+                  {sp ? <Text style={{ color: sp.full ? t.danger : t.brand, fontSize: 12, fontWeight: '700', fontVariant: ['tabular-nums'] }}>{sp.text}</Text> : null}
                 </Pressable>
               );
             })}

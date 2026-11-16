@@ -20,6 +20,7 @@ const MESSAGES: Record<string, string> = {
   end_active_session_first: 'End your active parking session before deleting your account.',
   invalid_name: 'Enter your name (up to 80 characters).',
   user_not_found: 'User not found.',
+  area_full: 'This area is full right now: every space is taken. Try a nearby area with free spaces.',
 };
 
 export class ApiError extends Error {

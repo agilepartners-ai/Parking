@@ -17,10 +17,11 @@ import { radius, space, type as ty, useTheme } from '../../src/theme';
 
 const DAYS = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
 interface Rule { days: number[]; start: string; end: string; price: string }
-interface Form { name: string; level: 2 | 3; maxStay: string; closing: string; minCharge: string; dailyMax: string; grace: string; rules: Rule[]; active: boolean; planName: string }
-const blank = (): Form => ({ name: '', level: 3, maxStay: '', closing: '', minCharge: '1.00', dailyMax: '', grace: '5', rules: [{ days: [1, 2, 3, 4, 5, 6, 7], start: '08:00', end: '24:00', price: '3.00' }], active: false, planName: '' });
+interface Form { name: string; level: 2 | 3; maxStay: string; closing: string; spaces: string; minCharge: string; dailyMax: string; grace: string; rules: Rule[]; active: boolean; planName: string }
+const blank = (): Form => ({ name: '', level: 3, maxStay: '', closing: '', spaces: '', minCharge: '1.00', dailyMax: '', grace: '5', rules: [{ days: [1, 2, 3, 4, 5, 6, 7], start: '08:00', end: '24:00', price: '3.00' }], active: false, planName: '' });
 const fromArea = (a: OperatorArea): Form => ({
   name: a.name, level: a.level === 2 ? 2 : 3, maxStay: a.max_stay_minutes ? String(a.max_stay_minutes) : '', closing: a.closing_time ?? '',
+  spaces: a.total_spaces != null ? String(a.total_spaces) : '',
   minCharge: (a.plan.min_charge_cents / 100).toFixed(2), dailyMax: a.plan.daily_max_cents != null ? (a.plan.daily_max_cents / 100).toFixed(2) : '',
   grace: String(a.plan.grace_minutes), active: a.active, planName: a.plan.name,
   rules: a.plan.rules.map((r) => ({ days: r.days_of_week, start: r.start_time, end: r.end_time, price: (r.price_per_hour_cents / 100).toFixed(2) })),
@@ -109,6 +110,8 @@ export default function AreaEditor() {
         plan: { name: form.planName || `${form.name.trim()} rate`, min_charge_cents: cents(form.minCharge), daily_max_cents: form.dailyMax ? cents(form.dailyMax) : null, grace_minutes: parseInt(form.grace || '0', 10), rules },
       });
       if ((form.closing.trim() || '') !== (saved.closing_time ?? '')) saved = await adminApi.setHours(saved.id, form.closing.trim());
+      const spaces = form.spaces.trim() ? parseInt(form.spaces.trim(), 10) : null;
+      if (spaces !== (saved.total_spaces ?? null)) saved = await adminApi.setCapacity(saved.id, spaces);
       setArea(saved); setForm(fromArea(saved));
       dispatch({ type: 'load', vertices: verticesOf(saved.geometry).vertices });
       notify('Saved', saved.active ? 'It is published, so drivers see the change right away.' : 'Saved as a draft. Drivers cannot see it until you publish.');
@@ -256,6 +259,14 @@ export default function AreaEditor() {
                 <View style={{ flex: 1 }}><Field label="Max stay (min)" value={form.maxStay} onChangeText={(v) => set('maxStay', v)} placeholder="none" keyboardType="number-pad" /></View>
                 <View style={{ flex: 1 }}><Field label="Closes at" value={form.closing} onChangeText={(v) => set('closing', v)} placeholder="never" /></View>
               </Row>
+              <Field label="Spaces (leave empty if not counted)" value={form.spaces} onChangeText={(v) => set('spaces', v.replace(/[^0-9]/g, ''))} placeholder="not counted" keyboardType="number-pad" />
+              {area && area.total_spaces != null ? (
+                <Text style={[ty.small, { color: (area.available ?? 0) === 0 ? t.danger : t.muted }]}>
+                  Now: {area.occupied ?? 0} parked, {area.available ?? 0} free. When every space is taken, the app tells new drivers the area is full and the server refuses to start a session. Ending a session frees its space at once.
+                </Text>
+              ) : (
+                <Text style={[ty.small, { color: t.muted }]}>Count spaces for lots with marked bays. Phone GPS cannot tell which bay a car is in, so spaces are counted per area: each running session uses one.</Text>
+              )}
               <Row>
                 <View style={{ flex: 1 }}><Field label="Minimum $" value={form.minCharge} onChangeText={(v) => set('minCharge', v)} keyboardType="decimal-pad" /></View>
                 <View style={{ flex: 1 }}><Field label="Daily max $" value={form.dailyMax} onChangeText={(v) => set('dailyMax', v)} placeholder="none" keyboardType="decimal-pad" /></View>

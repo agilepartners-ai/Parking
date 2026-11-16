@@ -64,6 +64,13 @@ export function geometryCenter(g: AreaGeometry): { lat: number; lng: number } {
   return { lat: y / n, lng: x / n };
 }
 
+/** "12 of 40 free", "Full", or null when the area does not count spaces. */
+export function spacesLabel(a: Pick<ParkingArea, 'total_spaces' | 'available'>): { text: string; full: boolean } | null {
+  if (a.total_spaces == null || a.available == null) return null;
+  if (a.available <= 0) return { text: 'Full', full: true };
+  return { text: `${a.available} of ${a.total_spaces} free`, full: false };
+}
+
 /** Normalise a plate the same way the database does: upper case, letters and digits only. */
 export function normalizePlate(p: string): string {
   return p.toUpperCase().replace(/[^A-Z0-9]/g, '');

@@ -46,6 +46,12 @@ export interface ParkingArea {
   max_stay_minutes: number | null;
   /** Operator-local "HH:MM" when the area closes, or null if it never closes. */
   closing_time?: string | null;
+  /** Spaces in the area, or null when the operator does not count them (streets, city zones). */
+  total_spaces?: number | null;
+  /** Cars parked right now (running sessions), counted live by the server. */
+  occupied?: number;
+  /** Free spaces right now, or null when spaces are not counted. */
+  available?: number | null;
   geometry: AreaGeometry;
   plan: RatePlan;
 }

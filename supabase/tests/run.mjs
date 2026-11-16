@@ -417,6 +417,48 @@ check('unknown email is reported', /user_not_found/.test((await as(paula, `selec
 await as(paula, `select set_staff_role('dana@test.dev', 'driver')`);
 eq('back to driver clears the operator link', (await sys(`select role, operator_id from app_user where email = 'dana@test.dev'`))[0], { role: 'driver', operator_id: null });
 
+// ---- 7g. capacity: spaces, live occupancy, no overbooking --------------------------------
+console.log('\ncapacity');
+const capPoly = { type: 'Polygon', coordinates: [[[-79.425, 43.672], [-79.423, 43.672], [-79.423, 43.6735], [-79.425, 43.6735], [-79.425, 43.672]]] };
+const CAP = { lat: 43.67275, lng: -79.424 };
+const capArea = val(await as(omar, `select operator_save_area(null, 'Capacity Test Lot', 3, $1::jsonb, null, true, $2::jsonb) as a`, [JSON.stringify(capPoly), JSON.stringify(plan)]), 'a');
+check('new area starts uncounted', capArea?.total_spaces === null && capArea.occupied === 0 && capArea.available === null, JSON.stringify(capArea && { t: capArea.total_spaces, o: capArea.occupied, a: capArea.available }));
+check('driver cannot set capacity', /forbidden/.test((await as(alice, `select operator_set_area_capacity($1, 5)`, [capArea.id])).error ?? ''));
+check('zero spaces is refused', /invalid_capacity/.test((await as(omar, `select operator_set_area_capacity($1, 0)`, [capArea.id])).error ?? ''));
+const cap2 = val(await as(omar, `select operator_set_area_capacity($1, 2) as a`, [capArea.id]), 'a');
+eq('operator sets 2 spaces', [cap2.total_spaces, cap2.occupied, cap2.available], [2, 0, 2]);
+check('capacity change is audit-logged and versioned', (await sys(`select count(*)::int c from audit_log where entity_id = $1 and action = 'capacity'`, [capArea.id]))[0].c === 1 && (await sys(`select count(*)::int c from parking_area_version where area_id = $1 and action = 'capacity'`, [capArea.id]))[0].c === 1);
+check('version snapshot holds settings, not live occupancy', (await sys(`select snapshot from parking_area_version where area_id = $1 and action = 'capacity'`, [capArea.id]))[0].snapshot.occupied === undefined);
+const capDrivers = [];
+for (const n of ['cap1', 'cap2', 'cap3']) {
+  const id = await signUp(`${n}@test.dev`, n);
+  const acc = (await sys(`select id from account where owner_user_id = $1`, [id]))[0].id;
+  const veh = val(await as(id, `insert into vehicle (account_id, plate) values ($1, $2) returning id`, [acc, n.toUpperCase() + 'X']), 'id');
+  capDrivers.push({ id, veh });
+}
+const c1 = val(await start(capDrivers[0].id, capDrivers[0].veh, CAP, 'cap-1'), 's');
+check('first car parks', c1?.area_name === 'Capacity Test Lot', JSON.stringify(c1));
+const seen = val(await as(alice, `select list_areas($1, $2, 2000) as a`, [CAP.lat, CAP.lng]), 'a').find((x) => x.id === capArea.id);
+eq('drivers see 1 of 2 free', [seen?.occupied, seen?.available], [1, 1]);
+check('second car parks', val(await start(capDrivers[1].id, capDrivers[1].veh, CAP, 'cap-2'), 's')?.status === 'active');
+check('third car is refused: area full', /area_full/.test((await start(capDrivers[2].id, capDrivers[2].veh, CAP, 'cap-3')).error ?? ''));
+eq('full area shows 0 available', val(await as(omar, `select operator_areas() as a`), 'a').find((x) => x.id === capArea.id).available, 0);
+check('a retry of an accepted start is still answered when full', val(await start(capDrivers[0].id, capDrivers[0].veh, CAP, 'cap-1'), 's')?.id === c1.id);
+await as(capDrivers[0].id, `select end_session($1)`, [c1.id]);
+check('ending a session frees its space', val(await start(capDrivers[2].id, capDrivers[2].veh, CAP, 'cap-4'), 's')?.status === 'active');
+const lowered = val(await as(omar, `select operator_set_area_capacity($1, 1) as a`, [capArea.id]), 'a');
+eq('lowering below cars parked keeps them, shows 0 free', [lowered.total_spaces, lowered.occupied, lowered.available], [1, 2, 0]);
+const unc = val(await as(omar, `select operator_set_area_capacity($1, null) as a`, [capArea.id]), 'a');
+eq('removing the limit makes it uncounted again', [unc.total_spaces, unc.available], [null, null]);
+check('uncounted area never refuses', val(await start(capDrivers[0].id, capDrivers[0].veh, CAP, 'cap-5'), 's')?.status === 'active');
+check('every way a session ends frees its space (counted live, never a stored counter)', await (async () => {
+  await as(omar, `select operator_set_area_capacity($1, 3)`, [capArea.id]);
+  const before = val(await as(omar, `select operator_areas() as a`), 'a').find((x) => x.id === capArea.id).occupied;
+  await as(capDrivers[1].id, `select end_session((select id from parking_session where vehicle_id = $1 and status = 'active'))`, [capDrivers[1].veh]);
+  const after = val(await as(omar, `select operator_areas() as a`), 'a').find((x) => x.id === capArea.id).occupied;
+  return before === 3 && after === 2;
+})());
+
 // ---- 8. account deletion -----------------------------------------------------------------
 console.log('\naccount deletion');
 const carol = await signUp('carol@test.dev', 'Carol');

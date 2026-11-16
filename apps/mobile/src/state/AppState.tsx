@@ -551,8 +551,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         // Ask the phone for a fresh position right now, so the session starts where the car actually is.
         const here = (await refreshLocation()) ?? fix;
         if (!here) throw new Error('We could not find your location. Turn on location for ParkPay, or pick a test spot.');
-        const s = await api.startSession({ vehicleId, lat: here.lat, lng: here.lng, accuracy: here.accuracy, speed: here.speed, key: uuid(), plannedMinutes });
+        let s: ParkingSession;
+        try {
+          s = await api.startSession({ vehicleId, lat: here.lat, lng: here.lng, accuracy: here.accuracy, speed: here.speed, key: uuid(), plannedMinutes });
+        } catch (e) {
+          void refreshAreas(); // e.g. the area filled up meanwhile: show the real free spaces
+          throw e;
+        }
         setActiveSession(s);
+        void refreshAreas(); // this car now takes a space: update the free-space counts
         notifiedLeft.current = null;
         const area = areas.find((a) => a.id === s.area_id);
         void scheduleSessionReminders(s.id, s.area_name, s.max_stay_minutes, s.planned_minutes ?? null, { closesIn: minutesUntilClose(area) });
@@ -562,7 +569,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setBusy(false);
       }
     },
-    [api, fix, areas, refreshLocation],
+    [api, fix, areas, refreshLocation, refreshAreas],
   );
 
   const endParking = useCallback(async () => {
@@ -572,13 +579,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const done = await api.endSession(activeSession.id, fix?.lat, fix?.lng);
       setActiveSession(null);
       setLeftArea(false);
+      void refreshAreas(); // the space is free again
       void cancelSessionReminders(activeSession.id);
       void stopLeaveWatch();
       return done;
     } finally {
       setBusy(false);
     }
-  }, [api, activeSession, fix]);
+  }, [api, activeSession, fix, refreshAreas]);
 
   const extendParking = useCallback(
     async (remainingMinutes: number | null) => {

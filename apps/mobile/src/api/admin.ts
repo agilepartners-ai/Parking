@@ -20,6 +20,7 @@ export const adminApi = {
   checkArea: (id: string | null, level: 2 | 3, g: AreaGeometry) => rpc<AreaCheck>('operator_check_area', { p_area_id: id, p_level: level, p_geojson: g }),
   saveArea: (a: { id: string | null; name: string; level: 2 | 3; geometry: AreaGeometry; maxStay: number | null; active: boolean; plan: PlanInput }) =>
     rpc<OperatorArea>('operator_save_area', { p_area_id: a.id, p_name: a.name, p_level: a.level, p_geojson: a.geometry, p_max_stay: a.maxStay, p_active: a.active, p_plan: a.plan }),
+  setCapacity: (id: string, spaces: number | null) => rpc<OperatorArea>('operator_set_area_capacity', { p_area_id: id, p_total_spaces: spaces }),
   setHours: (id: string, closing: string) => rpc<OperatorArea>('operator_set_area_hours', { p_area_id: id, p_closing_time: closing }),
   publish: (id: string, on: boolean) => rpc<OperatorArea>('operator_publish_area', { p_area_id: id, p_publish: on }),
   archive: (id: string) => rpc('operator_archive_area', { p_area_id: id }),
@@ -35,6 +36,7 @@ const AREA_ERRORS: Record<string, string> = {
   area_overlaps_other_operator: "This shape overlaps another operator's published area, so it cannot be published.",
   invalid_geometry: 'This shape is not valid. Draw it again.',
   invalid_time: 'Write the closing time as HH:MM, for example 23:00, or leave it empty.',
+  invalid_capacity: 'Spaces must be a whole number from 1 to 100,000, or empty if you do not count spaces.',
   area_has_active_sessions: 'A vehicle is parked here right now. Unpublish it and archive it once it is empty.',
   area_not_found: 'That area belongs to another operator.',
   operator_required: 'Your account is not linked to an operator.',

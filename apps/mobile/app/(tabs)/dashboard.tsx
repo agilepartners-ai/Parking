@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { RefreshControl, Text, View } from 'react-native';
 import { formatMoney } from '@parkpay/shared';
-import { adminApi, adminError, type ActiveSession, type Report } from '../../src/api/admin';
+import { adminApi, adminError, type ActiveSession, type OperatorArea, type Report } from '../../src/api/admin';
 import { Banner, Card, Chip, Divider, Empty, Row, Screen, SectionTitle, SkeletonCard } from '../../src/components/ui';
 import { space, type as ty, useTheme } from '../../src/theme';
 
@@ -14,15 +14,17 @@ export default function Dashboard() {
   const [days, setDays] = useState(7);
   const [report, setReport] = useState<Report | null>(null);
   const [active, setActive] = useState<ActiveSession[]>([]);
+  const [areas, setAreas] = useState<OperatorArea[]>([]);
   const [error, setError] = useState('');
   const [refreshing, setRefreshing] = useState(false);
 
   const load = useCallback(async () => {
     try {
       setError('');
-      const [r, a] = await Promise.all([adminApi.report(days), adminApi.activeSessions()]);
+      const [r, a, ar] = await Promise.all([adminApi.report(days), adminApi.activeSessions(), adminApi.areas()]);
       setReport(r);
       setActive(a);
+      setAreas(ar.filter((x) => x.active && x.level === 3));
     } catch (e) {
       setError(adminError(e));
     }
@@ -65,6 +67,29 @@ export default function Dashboard() {
             <Stat label="Your payout" value={formatMoney(report.operator_payout_cents, CUR)} note={`after ${formatMoney(report.platform_fee_cents, CUR)} platform fee`} />
             <Stat label="Tickets" value={String(report.citations)} note={`${formatMoney(report.citation_cents, CUR)} in fines`} />
           </View>
+          <SectionTitle>Occupancy now</SectionTitle>
+          <Card style={{ gap: space.sm }}>
+            {areas.length ? areas.map((a) => {
+              const counted = a.total_spaces != null;
+              const pct = counted ? Math.min(100, ((a.occupied ?? 0) / Math.max(1, a.total_spaces!)) * 100) : 0;
+              const full = counted && (a.available ?? 0) === 0;
+              return (
+                <View key={a.id} style={{ gap: 4 }}>
+                  <Row style={{ justifyContent: 'space-between' }}>
+                    <Text style={[ty.body, { color: t.text, fontWeight: '700', flex: 1 }]} numberOfLines={1}>{a.name}</Text>
+                    <Text style={[ty.body, { color: full ? t.danger : t.text, fontWeight: full ? '800' : '400', fontVariant: ['tabular-nums'] }]}>
+                      {counted ? `${a.occupied ?? 0} / ${a.total_spaces}${full ? ' · Full' : ''}` : `${a.occupied ?? 0} parked`}
+                    </Text>
+                  </Row>
+                  {counted ? (
+                    <View style={{ height: 6, borderRadius: 3, backgroundColor: t.brandSoft }}>
+                      <View style={{ height: 6, borderRadius: 3, width: `${Math.max(2, pct)}%`, backgroundColor: full ? t.danger : pct >= 85 ? t.warn : t.brand }} />
+                    </View>
+                  ) : <Text style={[ty.small, { color: t.muted }]}>Spaces not counted. Set them in Areas.</Text>}
+                </View>
+              );
+            }) : <Text style={[ty.small, { color: t.muted }]}>No published parking areas.</Text>}
+          </Card>
           <SectionTitle>Revenue by area</SectionTitle>
           <Card style={{ gap: space.sm }}>
             {report.by_area.length ? (
